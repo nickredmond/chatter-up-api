@@ -23,6 +23,12 @@ const allowAnyOrigin = function(req, res, next) {
     next();
 };
 
+// used for debugging/dev, not prod
+const logRequest = function(req, res, next) {
+    console.log('request ', req);
+    next();
+}
+
 const getDb = function(res, onConnect) {
     if (cachedDb) {
         onConnect(cachedDb);
@@ -82,6 +88,7 @@ const getNewGame = (numberOfPlayers, numberOfAiPlayers) => {
 var app = express();
 app.use(bodyParser.json());
 app.use(allowAnyOrigin);
+app.use(logRequest); // debug/dev only
 
 const port = process.env.PORT || 8080;
 app.listen(port, () => {
