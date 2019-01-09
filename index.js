@@ -145,40 +145,39 @@ app.get("/tables", (req, res, next) => {
 
 
 app.post("/table", (req, res, next) => {
-    // const table = req.body;
+    const table = req.body;
 
-    // getDb(res, (db) => {
-    //     db.collection('tables').findOne({ name: { $eq: table.name } }, (err, existingTable) => {
-    //         if (err) {
-    //             handleError('Error querying tables to verify name uniqueness.', err, res);
-    //         }
-    //         else if (existingTable) {
-    //             const errorMessage = 'Table with name ' + table.name + ' is already taken.';
-    //             res.status(400).send({ isNameTaken: true, error: errorMessage });
-    //         }
-    //         else {
-    //             const game = getNewGame(table.numberOfPlayers, table.numberOfAiPlayers);
-    //             db.collection('games').insertOne(game, (err) => {
-    //                 if (err) {
-    //                     handleError('Error saving new game.', err, res);
-    //                 }
-    //                 else {
-    //                     table.gameId = game.id;
-    //                     table.isFull = table.numberOfAiPlayers >= table.numberOfPlayers - 1;
-    //                     db.collection('tables').insertOne(table, (err) => {
-    //                         if (err) {
-    //                             handleError('Error saving new table.', err, res);
-    //                         }
-    //                         else {
-    //                             res.status(200).send({ gameId: game.id });
-    //                         }
-    //                     });
-    //                 }
-    //             });
-    //         }
-    //     });
-    // });
-    res.status(200).send({hm: 'Am I even hitting the right URL?'})
+    getDb(res, (db) => {
+        db.collection('tables').findOne({ name: { $eq: table.name } }, (err, existingTable) => {
+            if (err) {
+                handleError('Error querying tables to verify name uniqueness.', err, res);
+            }
+            else if (existingTable) {
+                const errorMessage = 'Table with name ' + table.name + ' is already taken.';
+                res.status(400).send({ isNameTaken: true, error: errorMessage });
+            }
+            else {
+                const game = getNewGame(table.numberOfPlayers, table.numberOfAiPlayers);
+                db.collection('games').insertOne(game, (err) => {
+                    if (err) {
+                        handleError('Error saving new game.', err, res);
+                    }
+                    else {
+                        table.gameId = game.id;
+                        table.isFull = table.numberOfAiPlayers >= table.numberOfPlayers - 1;
+                        db.collection('tables').insertOne(table, (err) => {
+                            if (err) {
+                                handleError('Error saving new table.', err, res);
+                            }
+                            else {
+                                res.status(200).send({ gameId: game.id });
+                            }
+                        });
+                    }
+                });
+            }
+        });
+    });
 });
 
 app.put("/game/:id", (req, res, next) => {
