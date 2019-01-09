@@ -100,6 +100,7 @@ app.use(allowAnyOrigin);
 const port = process.env.PORT || 8080;
 app.listen(port, () => {
     console.log("INFO: app started on port " + port);
+    console.log('MONGO URL IS ' + pokerGiverDbUrl)
 });
 
 app.post("/create-user", (req, res, next) => {
