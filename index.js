@@ -88,7 +88,6 @@ const getNewGame = (numberOfPlayers, numberOfAiPlayers) => {
 var app = express();
 app.use(bodyParser.json());
 app.use(allowAnyOrigin);
-app.use(logRequest); // debug/dev only
 
 const port = process.env.PORT || 8080;
 app.listen(port, () => {
