@@ -37,7 +37,7 @@ const getDb = function(res, onConnect) {
         console.log("connecting to database at " + pokerGiverDbUrl)
         MongoClient.connect(pokerGiverDbUrl, {useNewUrlParser: true}, (err, client) => {
             if (err) {
-                handleError('Error connecting to database.', error, res);
+                handleError('Error connecting to database.', err, res);
             }
             else {
                 cachedDb = client.db('poker-giver');
