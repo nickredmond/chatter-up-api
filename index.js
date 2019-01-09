@@ -30,6 +30,11 @@ const logRequest = function(req, res, next) {
     next();
 }
 
+const handleError = (message, err, res) => {
+    console.log(message, err)
+    res.status(500).send({ error: message });
+}
+
 const getDb = function(res, onConnect) {
     try {
         if (cachedDb) {
@@ -50,12 +55,8 @@ const getDb = function(res, onConnect) {
     }
     catch (error) {
         console.log('ERROR connecting to Mongo ', error.name, error.message, error.stack);
+        res.status(500).send('Error connecting to database.');
     }
-}
-
-const handleError = (message, err, res) => {
-    console.log(message, err)
-    res.status(500).send({ error: message });
 }
 
 const getNewGame = (numberOfPlayers, numberOfAiPlayers) => {
