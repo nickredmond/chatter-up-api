@@ -34,9 +34,10 @@ const getDb = function(res, onConnect) {
         onConnect(cachedDb);
     }
     else {
+        console.log("connecting to database at " + pokerGiverDbUrl)
         MongoClient.connect(pokerGiverDbUrl, {useNewUrlParser: true}, (err, client) => {
             if (err) {
-                res.status(500).send({ error: 'Error connecting to database.'});
+                handleError('Error connecting to database.', error, res);
             }
             else {
                 cachedDb = client.db('poker-giver');
@@ -100,16 +101,27 @@ app.post("/create-user", (req, res, next) => {
     });
 });
 
+// todo: require token to create tables, join games, etc - instead of getPlyer in socket, doAuth
+// maybe use auth lambda gateway or something in future
+app.post("/authenticate", (req, res, next) => {
+    // pass token and return 200 if valid or 400 otherwise
+    // use in socket when joining games
+});
+
 app.post("/log-in", (req, res, next) => {
     getDb(res, (db) => {
 
     });
 });
 
-// todo: mark table as isFull=true/false from socket server via API, whenever players join/leave (and is full or not)
-// todo: use pagination
+// todo: query games to join by name (partial match, toLower)
+// todo: use pagination, or at least ensure no duplicate games ($sample doesnt ensure this)
 app.get("/tables", (req, res, next) => {
     getDb(res, (db) => {
+        // todo: mark table as isFull=true/false from socket server via API, whenever players join/leave (and is full or not)
+        //
+        // ONLY RETURN TABLES THAT !isFull
+        //
         var tablesCursor = db.collection('tables').aggregate([{ $sample: { size: 10 } } ]);
         tablesCursor.get((err, tables) => {
             if (err) {
@@ -143,6 +155,7 @@ app.post("/table", (req, res, next) => {
                     }
                     else {
                         table.gameId = game.id;
+                        table.isFull = table.numberOfAiPlayers >= table.numberOfPlayers - 1;
                         db.collection('tables').insertOne(table, (err) => {
                             if (err) {
                                 handleError('Error saving new table.', err, res);
