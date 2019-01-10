@@ -42,7 +42,6 @@ const getDb = function(res, onConnect) {
             onConnect(cachedDb);
         }
         else {
-            console.log("connecting to database at " + pokerGiverDbUrl)
             MongoClient.connect(pokerGiverDbUrl, {useNewUrlParser: true}, (err, client) => {
                 if (err) {
                     handleError('Error connecting to database.', err, res);
@@ -101,7 +100,6 @@ app.use(allowAnyOrigin);
 const port = process.env.PORT || 8080;
 app.listen(port, () => {
     console.log("INFO: app started on port " + port);
-    console.log('MONGO URL IS ' + pokerGiverDbUrl)
 });
 
 app.post("/create-user", (req, res, next) => {
@@ -131,7 +129,10 @@ app.get("/tables", (req, res, next) => {
         //
         // ONLY RETURN TABLES THAT !isFull
         //
-        var tablesCursor = db.collection('tables').aggregate([{ $sample: { size: 10 } } ]);
+        var tablesCursor = db.collection('tables').aggregate([
+            { $sample: { size: 10 } },
+            { $match: { isFull: { $ne: true } } }
+        ]);
         tablesCursor.get((err, tables) => {
             if (err) {
                 handleError('Error getting random list of tables.', err, res);
@@ -164,6 +165,7 @@ app.post("/table", (req, res, next) => {
                     }
                     else {
                         table.gameId = game.id;
+                        table.numberOfHumanPlayers = 0;
                         table.isFull = table.numberOfAiPlayers >= table.numberOfPlayers - 1;
                         db.collection('tables').insertOne(table, (err) => {
                             if (err) {
