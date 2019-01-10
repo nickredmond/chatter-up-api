@@ -62,6 +62,7 @@ const getDb = function(res, onConnect) {
 const getNewGame = (numberOfPlayers, numberOfAiPlayers) => {
     const game = {
         id: uuid(),
+        isStarted: false,
         currentTurnIndex: 0,
         littleBlindAmount: 5,
         bigBlindAmount: 10,
@@ -108,11 +109,13 @@ app.post("/create-user", (req, res, next) => {
     });
 });
 
+// (DONT USE THIS WHEN CREATING TABLE, JUST PASS TOKEN W/ CREATION REQUEST)
 // todo: require token to create tables, join games, etc - instead of getPlyer in socket, doAuth
 // maybe use auth lambda gateway or something in future
 app.post("/authenticate", (req, res, next) => {
     // pass token and return 200 if valid or 400 otherwise
     // use in socket when joining games
+    res.status(200).send();
 });
 
 app.post("/log-in", (req, res, next) => {
@@ -184,19 +187,46 @@ app.post("/table", (req, res, next) => {
 
 app.put("/game/:id", (req, res, next) => {
     getDb(res, (db) => {
-        
+        db.collection('games').replaceOne({ id: { $eq: req.params.id} }, req.body, (err) => {
+            if (err) {
+                handleError('Error updating game with ID ' + req.params.id, err, res);
+            }   
+            else {
+                res.status(200).send();
+            }
+        });
     });
 });
 
 app.get("/game/:id", (req, res, next) => {
     getDb(res, (db) => {
-
+        db.collection('games').findOne({ id: { $eq: req.params.id } }, (err, game) => {
+            if (err) {
+                handleError('Error getting game by ID ' + req.params.id, err, res);
+            }
+            else if (game) {
+                res.status(200).send(game);
+            }
+            else {
+                res.status(404).send({ error: 'No game could be found with id ' + req.params.id });
+            }
+        })
     });
 });
 
 app.delete("/game/:id", (req, res, next) => {
     // delete game and associated table
     getDb(res, (db) => {
-
+        db.collection('games').deleteOne({ id: { $eq: req.params.id } }, (err) => {
+            if (err) {
+                handleError('Error deleting game with id ' + req.params.id, err, res);
+            }
+            else {
+                res.status(200).send();
+            }
+        });
     });
 });
+
+// todo: endpoints to deduct and add chips from/to players
+// deduct when joining table, add when leaving table or when winner
