@@ -217,7 +217,7 @@ const setIsTableFull = (gameId, res, isAdding) => {
 app.put("/game/:id/addPlayer", (req, res, next) => {
     const gameId = req.params.id;
     setIsTableFull(gameId, res, true);
-}));
+});
 app.put("/game/:id/removePlayer", (req, res, next) => {
     const gameId = req.params.id;
     setIsTableFull(gameId, res, false);
