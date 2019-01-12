@@ -115,7 +115,7 @@ app.post("/create-user", (req, res, next) => {
 app.post("/authenticate", (req, res, next) => {
     // pass token and return 200 if valid or 400 otherwise
     // use in socket when joining games
-    res.status(200).send();
+    res.status(200).send({ isAuthenticated: true });
 });
 
 app.post("/log-in", (req, res, next) => {
