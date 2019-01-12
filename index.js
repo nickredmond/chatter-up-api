@@ -134,7 +134,7 @@ app.get("/tables", (req, res, next) => {
         //
         var tablesCursor = db.collection('tables').aggregate([
             { $sample: { size: 10 } },
-            { $match: { isFull: { $ne: true } } }
+            { $match: { isFull: { $ne: true }, isOver: { $ne: true } } }
         ]);
         tablesCursor.get((err, tables) => {
             if (err) {
@@ -185,19 +185,59 @@ app.post("/table", (req, res, next) => {
     });
 });
 
-app.put("/game/:id", (req, res, next) => {
+const setIsTableFull = (gameId, res, isAdding) => {
     getDb(res, (db) => {
-        delete req.body._id;
-        db.collection('games').replaceOne({ id: { $eq: req.params.id} }, req.body, (err) => {
+        db.collection('tables').findOne({ gameId: { $eq: gameId } }, (err, table) => {
             if (err) {
-                handleError('Error updating game with ID ' + req.params.id, err, res);
-            }   
-            else {
-                res.status(200).send();
+                handleError('Error getting table by game ID ' + gameId, err, res);
             }
-        });
+            else if (table) {
+                table.numberOfHumanPlayers += isAdding ? 1 : -1;
+                const isFull = table.numberOfHumanPlayers + table.numberOfAiPlayers >= table.numberOfPlayers;
+                const isOver = !isFull && table.numberOfHumanPlayers + table.numberOfAiPlayers <= 1;
+                db.collection('tables').updateOne(
+                    { gameId: gameId },
+                    { $set: { isFull: isFull, isOver: isOver, numberOfHumanPlayers: table.numberOfHumanPlayers } },
+                    (err, result) => {
+                        if (err) {
+                            handleError('Error updating table ' + table.name + ' to full/not-full');
+                        }
+                        else {
+                            res.status(200).send();
+                        }
+                    }
+                )
+            }
+            else {
+                res.status(404).send();
+            }
+        })
     });
+}
+app.put("/game/:id/addPlayer", (req, res, next => {
+    const gameId = req.params.id;
+    setIsTableFull(gameId, res, true);
+}));
+app.put("/game/:id/removePlayer", (req, res, next) => {
+    const gameId = req.params.id;
+    setIsTableFull(gameId, res, false);
 });
+
+// todo: evaluate if I need this endpoint; don't want to save game constantly, no need
+// app.put("/game/:id", (req, res, next) => {
+//     getDb(res, (db) => {
+//         delete req.body._id;
+//         const isFull = game.players.length >= game.numberOfPlayers;
+//         db.collection('games').replaceOne({ id: { $eq: req.params.id} }, req.body, (err) => {
+//             if (err) {
+//                 handleError('Error updating game with ID ' + req.params.id, err, res);
+//             }   
+//             else {
+//                 res.status(200).send();
+//             }
+//         });
+//     });
+// });
 
 app.get("/game/:id", (req, res, next) => {
     getDb(res, (db) => {
