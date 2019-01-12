@@ -187,6 +187,7 @@ app.post("/table", (req, res, next) => {
 
 app.put("/game/:id", (req, res, next) => {
     getDb(res, (db) => {
+        delete req.body._id;
         db.collection('games').replaceOne({ id: { $eq: req.params.id} }, req.body, (err) => {
             if (err) {
                 handleError('Error updating game with ID ' + req.params.id, err, res);
