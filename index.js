@@ -1,9 +1,16 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const mongodb = require('mongodb');
+var crypto = require('crypto');
 const uuid = require('uuid/v1'); // v1 is timestamp-based
 const jwt = require('jsonwebtoken');
 const JWT_SECRET = process.env.JWT_SECRET || 'nick[expletive]ingredmond';
+const STARTING_CHIPS_QTY = process.env.STARTING_CHIPS_QTY || 2500;
+
+Date.prototype.addHours = function(h) {    
+    this.setTime(this.getTime() + (h*60*60*1000)); 
+    return this;   
+}
 
 // todo: ALL IPs ARE WHITELISTED IN ATLAS; change this to production setup when ready
 const MongoClient = mongodb.MongoClient;
@@ -103,86 +110,161 @@ app.listen(port, () => {
     console.log("INFO: app started on port " + port);
 });
 
+const generateHash = (plainTextPassword, salt) => {
+    return crypto.pbkdf2Sync(plainTextPassword, salt, 10000, 512, 'sha512').toString('hex');
+}
+
+// return { salt, hash }
+const generateSecurePassword = (plainTextPassword) => {
+    const salt = crypto.randomBytes(16).toString('hex');
+    const hash = generateHash(plainTextPassword, salt);
+    return { salt, hash };
+}
+
+const isPasswordValid = (plainTextPassword, userSalt, userHash) => {
+    const hash = generateHash(plainTextPassword, userSalt);
+    return hash === userHash;
+}
+
+const generateJwt = (playerName) => {
+    const expirationDate = new Date();
+    expirationDate.addHours(1);
+
+    return jwt.sign({
+        playerName,
+        exp: expirationDate.getTime()
+    }, JWT_SECRET);
+}
+
 app.post("/create-user", (req, res, next) => {
     getDb(res, (db) => {
-
-    });
-});
-
-// (DONT USE THIS WHEN CREATING TABLE, JUST PASS TOKEN W/ CREATION REQUEST)
-// todo: require token to create tables, join games, etc - instead of getPlyer in socket, doAuth
-// maybe use auth lambda gateway or something in future
-app.post("/authenticate", (req, res, next) => {
-    // pass token and return 200 if valid or 400 otherwise
-    // use in socket when joining games
-    res.status(200).send({ isAuthenticated: true });
-});
-
-app.post("/log-in", (req, res, next) => {
-    getDb(res, (db) => {
-
-    });
-});
-
-// todo: query games to join by name (partial match, toLower)
-// todo: use pagination, or at least ensure no duplicate games ($sample doesnt ensure this)
-app.get("/tables", (req, res, next) => {
-    getDb(res, (db) => {
-        // todo: mark table as isFull=true/false from socket server via API, whenever players join/leave (and is full or not)
-        //
-        // ONLY RETURN TABLES THAT !isFull
-        //
-        var tablesCursor = db.collection('tables').aggregate([
-            { $sample: { size: 10 } },
-            { $match: { isFull: { $ne: true }, isOver: { $ne: true } } }
-        ]);
-        tablesCursor.get((err, tables) => {
+        const playerName = req.body.username;
+        const password = req.body.password;
+        db.collection('players').findOne({ name: { $eq: playerName } }, (err, existingPlayer) => {
             if (err) {
-                handleError('Error getting random list of tables.', err, res);
+                handleError('Error checking if player name ' + playerName + ' exists.', err, res);
+            }
+            else if (existingPlayer) {
+                res.status(400).send({ playerAlreadyExists: true });
             }
             else {
-                res.status(200).send(tables);
-            }
-        });
-    });
-});
-
-
-app.post("/table", (req, res, next) => {
-    const table = req.body;
-
-    getDb(res, (db) => {
-        db.collection('tables').findOne({ name: { $eq: table.name } }, (err, existingTable) => {
-            if (err) {
-                handleError('Error querying tables to verify name uniqueness.', err, res);
-            }
-            else if (existingTable) {
-                const errorMessage = 'Table with name ' + table.name + ' is already taken.';
-                res.status(400).send({ isNameTaken: true, error: errorMessage });
-            }
-            else {
-                const game = getNewGame(table.numberOfPlayers, table.numberOfAiPlayers);
-                db.collection('games').insertOne(game, (err) => {
+                const securePassword = generateSecurePassword(password);
+                const player = {
+                    name: playerName,
+                    hash: securePassword.hash,
+                    salt: securePassword.salt,
+                    numberOfChips: STARTING_CHIPS_QTY
+                };
+                db.collection('players').insertOne(player, (err) => {
                     if (err) {
-                        handleError('Error saving new game.', err, res);
+                        handleError('Error creating new player.', err, res);
                     }
                     else {
-                        table.gameId = game.id;
-                        table.numberOfHumanPlayers = 0;
-                        table.isFull = table.numberOfAiPlayers >= table.numberOfPlayers - 1;
-                        db.collection('tables').insertOne(table, (err) => {
-                            if (err) {
-                                handleError('Error saving new table.', err, res);
-                            }
-                            else {
-                                res.status(200).send({ gameId: game.id });
-                            }
-                        });
+                        const token = generateJwt(playerName);
+                        const responseBody = {
+                            token,
+                            numberOfChips: player.numberOfChips
+                        };
+                        res.status(200).send(responseBody);
                     }
                 });
             }
         });
     });
+});
+
+// maybe use auth lambda gateway or something in future
+app.post("/authenticate", (req, res, next) => {
+    // use in socket when joining games
+    // todo: pass from both app and ws server to refresh exp of token (keep user logged in)
+    verifyToken(req.body.token, res, () => {
+        res.status(200).send({ isAuthenticated: true });
+    });
+});
+
+app.post("/log-in", (req, res, next) => {
+    const playerName = req.body.username;
+    const password = req.body.password;
+
+    getDb(res, (db) => {
+        db.collection('players').findOne({ name: { $eq: playerName } }, (err, existingPlayer) => {
+            if (err) {
+                handleError('Error occurred while logging in.', err, res);
+            }
+            else if (!existingPlayer) {
+                res.status(400).send({ playerExists: false, error: 'Could not find player with that username.' });
+            }
+            else if (!isPasswordValid(password, existingPlayer.salt, existingPlayer.hash)) {
+                res.status(400).send({ playerExists: true, error: 'Password is invalid.' });
+            }
+            else {
+                const token = generateJwt(existingPlayer.name);
+                const numberOfChips = existingPlayer.numberOfChips || 0;
+                res.status(200).send({ token, numberOfChips });
+            }
+        });
+    });
+});
+
+// todo: query games to join by name (partial match, toLower)
+// todo: use pagination, or at least ensure no duplicate games ($sample doesnt ensure this)
+app.post("/tables", (req, res, next) => {
+    verifyToken(req.body.token, res, () => {
+        getDb(res, (db) => {
+            var tablesCursor = db.collection('tables').aggregate([
+                { $sample: { size: 10 } },
+                { $match: { isFull: { $ne: true }, isOver: { $ne: true } } }
+            ]);
+            tablesCursor.get((err, tables) => {
+                if (err) {
+                    handleError('Error getting random list of tables.', err, res);
+                }
+                else {
+                    res.status(200).send(tables);
+                }
+            });
+        });
+    })
+});
+
+
+app.post("/table", (req, res, next) => {
+    verifyToken(req.body.token, res, () => {
+        const table = req.body.table;
+
+        getDb(res, (db) => {
+            db.collection('tables').findOne({ name: { $eq: table.name } }, (err, existingTable) => {
+                if (err) {
+                    handleError('Error querying tables to verify name uniqueness.', err, res);
+                }
+                else if (existingTable) {
+                    const errorMessage = 'Table with name ' + table.name + ' is already taken.';
+                    res.status(400).send({ isNameTaken: true, error: errorMessage });
+                }
+                else {
+                    const game = getNewGame(table.numberOfPlayers, table.numberOfAiPlayers);
+                    db.collection('games').insertOne(game, (err) => {
+                        if (err) {
+                            handleError('Error saving new game.', err, res);
+                        }
+                        else {
+                            table.gameId = game.id;
+                            table.numberOfHumanPlayers = 0;
+                            table.isFull = table.numberOfAiPlayers >= table.numberOfPlayers - 1;
+                            db.collection('tables').insertOne(table, (err) => {
+                                if (err) {
+                                    handleError('Error saving new table.', err, res);
+                                }
+                                else {
+                                    res.status(200).send({ gameId: game.id });
+                                }
+                            });
+                        }
+                    });
+                }
+            });
+        });
+    })
 });
 
 const setIsTableFull = (gameId, res, isAdding) => {
@@ -214,6 +296,9 @@ const setIsTableFull = (gameId, res, isAdding) => {
         })
     });
 }
+
+// todo: lock this down, perhaps by IP whitelist, so only WS server can add/remove or other admin functions
+// todo: verify isFull and isOver actually work, i.e. those tables are no longer returned
 app.put("/game/:id/addPlayer", (req, res, next) => {
     const gameId = req.params.id;
     setIsTableFull(gameId, res, true);
@@ -239,6 +324,7 @@ app.put("/game/:id/removePlayer", (req, res, next) => {
 //     });
 // });
 
+// todo: lock this down (see above 'lock this down')
 app.get("/game/:id", (req, res, next) => {
     getDb(res, (db) => {
         db.collection('games').findOne({ id: { $eq: req.params.id } }, (err, game) => {
@@ -255,8 +341,9 @@ app.get("/game/:id", (req, res, next) => {
     });
 });
 
+// todo: lock this down (see above 'lock this down')
 app.delete("/game/:id", (req, res, next) => {
-    // delete game and associated table
+    // todo: delete game and associated table
     getDb(res, (db) => {
         db.collection('games').deleteOne({ id: { $eq: req.params.id } }, (err) => {
             if (err) {
@@ -267,6 +354,55 @@ app.delete("/game/:id", (req, res, next) => {
             }
         });
     });
+});
+
+const isTokenExpired = (expiry) => {
+    const currentTime = new Date().getTime();
+    return expiry <= currentTime;
+}
+
+// return playerName if successful
+const verifyToken = (token, res, onSuccess) => {
+    jwt.verify(token, JWT_SECRET, (err, decodedToken) => {
+        if (err || !decodedToken || !decodedToken.playerName) {
+            res.status(401).send({ error: 'User token is invalid!' });
+        }
+        else if (isTokenExpired(decodedToken.exp)) {
+            res.status(401).send({ isTokenExpired: true, error: 'User token has expired!' });
+        }
+        else {
+            onSuccess(decodedToken.playerName);
+        }
+    });
+}
+
+const updatePlayerChipsCount = (req, res, isAdding) => {
+    verifyToken(req.body.token, res, (playerName) => {
+        getDb(res, (db) => {
+            const factor = isAdding ? 1 : -1;
+            const changeAmount = factor * req.body.numberOfChips;
+            db.collection('players').updateOne(
+                { name: playerName },
+                { $inc: { numberOfChips: changeAmount } },
+                (err, result) => {
+                    if (err) {
+                        handleError('ERROR updating player ' + playerName + ' chips', err, res);
+                    }
+                    else {
+                        res.status(200).send();
+                    }
+                }    
+            )
+        });
+    });
+}
+
+app.put("/player/addChips", (req, res, next) => {
+    updatePlayerChipsCount(req, res, true);
+});
+
+app.put("/player/removeChips", (req, res, next) => {
+    updatePlayerChipsCount(req, res, false);
 });
 
 // todo: endpoints to deduct and add chips from/to players
