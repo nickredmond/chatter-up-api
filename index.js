@@ -148,24 +148,35 @@ app.post("/create-user", (req, res, next) => {
                 res.status(400).send({ playerAlreadyExists: true });
             }
             else {
-                const securePassword = generateSecurePassword(password);
-                const player = {
-                    name: playerName,
-                    hash: securePassword.hash,
-                    salt: securePassword.salt,
-                    numberOfChips: STARTING_CHIPS_QTY
-                };
-                db.collection('players').insertOne(player, (err) => {
+                db.collection('players').findOne({ email: { $eq: req.body.email } }, (err, existingPlayer) => {
                     if (err) {
-                        handleError('Error creating new player.', err, res);
+                        handleError('Error checking if player name ' + playerName + ' exists.', err, res);
+                    }
+                    else if (existingPlayer) {
+                        res.status(400).send({ isEmailTaken: true });
                     }
                     else {
-                        const token = generateJwt(playerName);
-                        const responseBody = {
-                            token,
-                            numberOfChips: player.numberOfChips
+                        const securePassword = generateSecurePassword(password);
+                        const player = {
+                            name: playerName,
+                            email: req.body.email,
+                            hash: securePassword.hash,
+                            salt: securePassword.salt,
+                            numberOfChips: STARTING_CHIPS_QTY
                         };
-                        res.status(200).send(responseBody);
+                        db.collection('players').insertOne(player, (err) => {
+                            if (err) {
+                                handleError('Error creating new player.', err, res);
+                            }
+                            else {
+                                const token = generateJwt(playerName);
+                                const responseBody = {
+                                    token,
+                                    numberOfChips: player.numberOfChips
+                                };
+                                res.status(200).send(responseBody);
+                            }
+                        });
                     }
                 });
             }
@@ -177,8 +188,9 @@ app.post("/create-user", (req, res, next) => {
 app.post("/authenticate", (req, res, next) => {
     // use in socket when joining games
     // todo: pass from both app and ws server to refresh exp of token (keep user logged in)
-    verifyToken(req.body.token, res, () => {
-        res.status(200).send({ isAuthenticated: true });
+    verifyToken(req.body.token, res, (playerName) => {
+        const refreshedToken = generateJwt(playerName);
+        res.status(200).send({ isAuthenticated: true, refreshedToken });
     });
 });
 
@@ -404,6 +416,21 @@ app.put("/player/addChips", (req, res, next) => {
 app.put("/player/removeChips", (req, res, next) => {
     updatePlayerChipsCount(req, res, false);
 });
+
+app.post("/chips-count", (req, res, next) => {
+    verifyToken(req.body.token, res, (playerName) => {
+        getDb(res, (db) => {
+            db.collection('players').findOne({ name: { $eq: playerName } }, (err, player) => {
+                if (err) {
+                    handleError('ERROR finding player with name ' + playerName, err, res);
+                }
+                else {
+                    res.status(200).send({ numberOfChips: player.numberOfChips })
+                }
+            })
+        });
+    });
+})
 
 // todo: endpoints to deduct and add chips from/to players
 // deduct when joining table, add when leaving table or when winner
