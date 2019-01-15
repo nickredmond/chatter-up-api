@@ -243,7 +243,7 @@ app.post("/tables", (req, res, next) => {
 app.post("/table", (req, res, next) => {
     verifyToken(req.body.token, res, () => {
         const table = req.body.table;
-        table.name = table.name ? table.name.toLowerCase() : null;
+        table.name = table.name ? table.name.toLowerCase().trim() : null;
 
         if (table.name) {
             getDb(res, (db) => {
