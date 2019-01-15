@@ -232,7 +232,6 @@ app.post("/tables", (req, res, next) => {
                     handleError('Error getting random list of tables.', err, res);
                 }
                 else {
-                    console.log('hella ', tables)
                     res.status(200).send(tables);
                 }
             });
