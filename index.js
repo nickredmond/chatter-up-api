@@ -195,17 +195,19 @@ app.post("/authenticate", (req, res, next) => {
 });
 app.post("/player/start-game/:gameId/is-authorized", (req, res, next) => {
     verifyToken(req.body.token, res, playerName => {
-        db.collection('games').findOne({ id: { $eq: req.params.gameId } }, (err, game) => {
-            if (err) {
-                handleError('Error finding game with id ' + req.params.gameId, err, res);
-            }
-            else if (game) {
-                const isAuthorized = playerName === game.createdBy;
-                res.status(200).send({ isAuthorized });
-            }
-            else {
-                res.status(404).send({ error: 'Could not find game with that ID.' });
-            }
+        getDb(res, db => {
+            db.collection('games').findOne({ id: { $eq: req.params.gameId } }, (err, game) => {
+                if (err) {
+                    handleError('Error finding game with id ' + req.params.gameId, err, res);
+                }
+                else if (game) {
+                    const isAuthorized = playerName === game.createdBy;
+                    res.status(200).send({ isAuthorized });
+                }
+                else {
+                    res.status(404).send({ error: 'Could not find game with that ID.' });
+                }
+            })
         })
     })
 })
