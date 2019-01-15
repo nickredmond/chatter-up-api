@@ -184,6 +184,25 @@ app.post("/create-user", (req, res, next) => {
     });
 });
 
+const isAuthorizedToStartGame = (req, res, onSuccess) => {
+    verifyToken(req.body.token, res, playerName => {
+        getDb(res, db => {
+            db.collection('games').findOne({ id: { $eq: req.params.gameId } }, (err, game) => {
+                if (err) {
+                    handleError('Error finding game with id ' + req.params.gameId, err, res);
+                }
+                else if (game) {
+                    const isAuthorized = !game.isStarted && playerName === game.createdBy;
+                    onSuccess(isAuthorized, game.isStarted);
+                }
+                else {
+                    res.status(404).send({ error: 'Could not find game with that ID.' });
+                }
+            })
+        })
+    })
+}
+
 // maybe use auth lambda gateway or something in future
 app.post("/authenticate", (req, res, next) => {
     // use in socket when joining games
@@ -194,22 +213,9 @@ app.post("/authenticate", (req, res, next) => {
     });
 });
 app.post("/player/start-game/:gameId/is-authorized", (req, res, next) => {
-    verifyToken(req.body.token, res, playerName => {
-        getDb(res, db => {
-            db.collection('games').findOne({ id: { $eq: req.params.gameId } }, (err, game) => {
-                if (err) {
-                    handleError('Error finding game with id ' + req.params.gameId, err, res);
-                }
-                else if (game) {
-                    const isAuthorized = playerName === game.createdBy;
-                    res.status(200).send({ isAuthorized });
-                }
-                else {
-                    res.status(404).send({ error: 'Could not find game with that ID.' });
-                }
-            })
-        })
-    })
+    isAuthorizedToStartGame(req, res, isAuthorized => {
+        res.status(200).send({ isAuthorized });
+    });
 })
 
 app.post("/log-in", (req, res, next) => {
@@ -377,6 +383,33 @@ app.get("/game/:id", (req, res, next) => {
             }
         })
     });
+});
+
+app.put("/game/:gameId/start", (req, res, next) => {
+    isAuthorizedToStartGame(req, res, (isAuthorized, isGameStarted) => {
+        if (isAuthorized) {
+            getDb(res, db => {
+                db.collection('games').updateOne(
+                    { id: req.params.gameId }, 
+                    { $set: { isStarted: true } },
+                    (err, result) => {
+                        if (err) {
+                            handleError('Error starting game w/ id ' + req.params.gameId, err, res);
+                        }
+                        else {
+                            res.status(200).send();
+                        }
+                    }
+                )
+            })
+        }  
+        else if (!isGameStarted) {
+            res.status(401).send({ error: 'User is not authorized to start this game.' });
+        }
+        else {
+            res.status(200).send();
+        }
+    })
 });
 
 // todo: lock this down (see above 'lock this down')
