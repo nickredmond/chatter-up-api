@@ -193,6 +193,22 @@ app.post("/authenticate", (req, res, next) => {
         res.status(200).send({ isAuthenticated: true, refreshedToken });
     });
 });
+app.post("/player/start-game/:gameId/is-authorized", (req, res, next) => {
+    verifyToken(req.body.token, res, playerName => {
+        db.collection('games').findOne({ id: { $eq: req.params.gameId } }, (err, game) => {
+            if (err) {
+                handleError('Error finding game with id ' + req.params.gameId, err, res);
+            }
+            else if (game) {
+                const isAuthorized = playerName === game.createdBy;
+                res.status(200).send({ isAuthorized });
+            }
+            else {
+                res.status(404).send({ error: 'Could not find game with that ID.' });
+            }
+        })
+    })
+})
 
 app.post("/log-in", (req, res, next) => {
     const playerName = req.body.username;
@@ -258,7 +274,7 @@ app.post("/table", (req, res, next) => {
                     else {
                         const game = getNewGame(table.numberOfPlayers, table.numberOfAiPlayers);
                         game.createdBy = playerName;
-                        
+
                         db.collection('games').insertOne(game, (err) => {
                             if (err) {
                                 handleError('Error saving new game.', err, res);
