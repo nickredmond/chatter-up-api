@@ -241,7 +241,7 @@ app.post("/tables", (req, res, next) => {
 
 
 app.post("/table", (req, res, next) => {
-    verifyToken(req.body.token, res, () => {
+    verifyToken(req.body.token, res, playerName => {
         const table = req.body.table;
         table.name = table.name ? table.name.toLowerCase().trim() : null;
 
@@ -257,6 +257,8 @@ app.post("/table", (req, res, next) => {
                     }
                     else {
                         const game = getNewGame(table.numberOfPlayers, table.numberOfAiPlayers);
+                        game.createdBy = playerName;
+                        
                         db.collection('games').insertOne(game, (err) => {
                             if (err) {
                                 handleError('Error saving new game.', err, res);
