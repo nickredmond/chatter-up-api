@@ -55,6 +55,7 @@ const getDb = function(res, onConnect) {
                 }
                 else {
                     cachedDb = client.db(pokerGiverDbName);
+                    cachedDb.collection('tables').createIndex({ name: 'text' });
                     onConnect(cachedDb);
                 }
             });
@@ -247,10 +248,19 @@ app.post("/log-in", (req, res, next) => {
 app.post("/tables", (req, res, next) => {
     verifyToken(req.body.token, res, () => {
         getDb(res, (db) => {
-            var tablesCursor = db.collection('tables').aggregate([
+            const aggregationSteps = [
                 { $sample: { size: 10 } },
-                { $match: { isFull: { $ne: true }, isOver: { $ne: true } } }
-            ]);
+                { $match: { 
+                    isFull: { $ne: true }, 
+                    isOver: { $ne: true } 
+                } }
+            ];
+            if (req.body.query) {
+                const queryStep = { $match: { $text: { $search: req.body.query } } };
+                aggregationSteps.splice(0, 0, queryStep);
+            }
+
+            var tablesCursor = db.collection('tables').aggregate(aggregationSteps);
             tablesCursor.get((err, tables) => {
                 if (err) {
                     handleError('Error getting random list of tables.', err, res);
