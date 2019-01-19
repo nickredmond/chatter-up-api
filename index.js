@@ -56,6 +56,8 @@ const getDb = function(res, onConnect) {
                 else {
                     cachedDb = client.db(pokerGiverDbName);
                     cachedDb.collection('tables').createIndex({ name: 'text' });
+                    cachedDb.collection('players').createIndex({ netChipsThisMonth: 1 });
+                    cachedDb.collection('players').createIndex({ netChipsThisWeek: 1 });
                     onConnect(cachedDb);
                 }
             });
@@ -164,8 +166,10 @@ app.post("/create-user", (req, res, next) => {
                             hash: securePassword.hash,
                             salt: securePassword.salt,
                             numberOfChips: STARTING_CHIPS_QTY,
-                            netPointsThisMonth: 0,
-                            netPointsThisWeek: 0
+                            netChipsThisMonth: 0,
+                            netChipsThisWeek: 0,
+                            winningNetChipsLastMonth: 0,
+                            winningNetChipsLastWeek: 0
                         };
                         db.collection('players').insertOne(player, (err) => {
                             if (err) {
@@ -509,7 +513,7 @@ app.put("/player/net-chips-change", (req, res, next) => {
             const changeAmount = req.body.netChipsChange;
             db.collection('players').updateOne(
                 { name: playerName },
-                { $inc: { netPointsThisMonth: changeAmount, netPointsThisWeek: changeAmount } },
+                { $inc: { netChipsThisMonth: changeAmount, netChipsThisWeek: changeAmount } },
                 (err, result) => {
                     if (err) {
                         handleError('ERROR updating net chips for player ' + playerName, err, res);
@@ -520,6 +524,68 @@ app.put("/player/net-chips-change", (req, res, next) => {
                 }
             )
         });
+    })
+})
+
+getNetScore = (player, rankingType, timeType) => {
+    let netScore = 0;
+
+    if (rankingType === 'month') {
+        if (timeType === 'current') {
+            netScore = player.netChipsThisMonth;
+        }
+        else { // last
+            netScore = player.winningNetChipsLastMonth;
+        }
+    }
+    else { // week 
+        if (timeType === 'current') {
+            netScore = player.netChipsThisWeek;
+        }
+        else { // last
+            netScore = player.winningNetChipsLastWeek;
+        }
+    }
+
+    return netScore;
+}
+
+app.post("/rankings/:rankingType/:timeType", (req, res, next) => {
+    // todo: be able to pass limit? or read from db the winnings?
+    verifyToken(req.body.token, res, playerName => {
+        getDb(res, db => {
+            const sortAction = {};
+
+            if (req.params.rankingType === 'month') {
+                if (req.params.timeType === 'current') {
+                    sortAction.netChipsThisMonth = -1;
+                }
+                else { // last
+                    sortAction.winningNetChipsLastMonth = -1;
+                }
+            }
+            else { // week 
+                if (req.params.timeType === 'current') {
+                    sortAction.netChipsThisWeek = -1;
+                }
+                else { // last
+                    sortAction.winningNetChipsLastWeek = -1;
+                }
+            }
+
+            // todo: handle ties
+            const rankingsCursor = db.collection('players').find().sort(sortAction).limit(3).toArray();
+            rankingsCursor.then(rankedPlayers => {
+                // todo: error handling?
+                const rankings = rankedPlayers.map(player => {
+                    return { 
+                        playerName: player.name, 
+                        netScore: getNetScore(player, req.params.rankingType, req.params.timeType) 
+                    };
+                })
+                res.status(200).send(rankings);
+            })
+        })
     })
 })
 
