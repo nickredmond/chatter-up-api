@@ -437,7 +437,17 @@ app.delete("/game/:id", (req, res, next) => {
                 handleError('Error deleting game with id ' + req.params.id, err, res);
             }
             else {
-                res.status(200).send();
+                db.collection('tables').deleteOne(
+                    { gameId: { $eq: req.params.id } },
+                    (err) => {
+                        if (err) {
+                            handleError('Error deleting table with gameId ' + req.params.id, err, res);
+                        }
+                        else {
+                            res.status(200).send();
+                        }
+                    }  
+                );
             }
         });
     });
