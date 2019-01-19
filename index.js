@@ -574,7 +574,7 @@ app.post("/rankings/:rankingType/:timeType", (req, res, next) => {
             }
 
             // todo: handle ties
-            const rankingsCursor = db.collection('players').find().sort(sortAction).limit(3).toArray();
+            const rankingsCursor = db.collection('players').find().sort(sortAction).limit(10).toArray();
             rankingsCursor.then(rankedPlayers => {
                 // todo: error handling?
                 const rankings = rankedPlayers.map(player => {
