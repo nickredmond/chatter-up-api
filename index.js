@@ -163,7 +163,9 @@ app.post("/create-user", (req, res, next) => {
                             email: req.body.email,
                             hash: securePassword.hash,
                             salt: securePassword.salt,
-                            numberOfChips: STARTING_CHIPS_QTY
+                            numberOfChips: STARTING_CHIPS_QTY,
+                            netPointsThisMonth: 0,
+                            netPointsThisWeek: 0
                         };
                         db.collection('players').insertOne(player, (err) => {
                             if (err) {
@@ -499,6 +501,26 @@ app.post("/chips-count", (req, res, next) => {
             })
         });
     });
+})
+
+app.put("/player/net-chips-change", (req, res, next) => {
+    verifyToken(req.body.token, res, playerName => {
+        getDb(res, db => {
+            const changeAmount = req.body.netChipsChange;
+            db.collection('players').updateOne(
+                { name: playerName },
+                { $inc: { netPointsThisMonth: changeAmount, netPointsThisWeek: changeAmount } },
+                (err, result) => {
+                    if (err) {
+                        handleError('ERROR updating net chips for player ' + playerName, err, res);
+                    }
+                    else {
+                        res.status(200).send();
+                    }
+                }
+            )
+        });
+    })
 })
 
 // todo: endpoints to deduct and add chips from/to players
