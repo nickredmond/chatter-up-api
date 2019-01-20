@@ -593,7 +593,22 @@ app.post("/rankings/:rankingType/:timeType", (req, res, next) => {
                         netScore: getNetScore(player, req.params.rankingType, req.params.timeType) 
                     };
                 })
-                res.status(200).send(rankings);
+
+                if (req.params.timeType === 'current') {
+                    db.collection('winnings').find({ type: { $eq: req.params.rankingType } }, (err, winningsCursor) => {
+                        winningsCursor.toArray().then(winnings => {
+                            for (var i = 0; i < winnings.length; i++) {
+                                const winning = winnings[i];
+                                const winningIndex = winning.place - 1;
+                                rankings[winningIndex].winningAmount = winning.amount;
+                            }
+                            res.status(200).send(rankings);
+                        })
+                    })
+                }
+                else {
+                    res.status(200).send(rankings);
+                }
             })
         })
     })
