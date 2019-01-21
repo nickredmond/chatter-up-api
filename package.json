@@ -15,6 +15,7 @@
     "express": "^4.16.4",
     "jsonwebtoken": "^8.4.0",
     "mongodb": "^3.1.10",
+    "node-fetch": "^2.3.0",
     "uuid": "^3.3.2"
   }
 }

@@ -4,6 +4,8 @@ const mongodb = require('mongodb');
 var crypto = require('crypto');
 const uuid = require('uuid/v1'); // v1 is timestamp-based
 const jwt = require('jsonwebtoken');
+const fetch = require('node-fetch');
+
 const JWT_SECRET = process.env.JWT_SECRET || 'nick[expletive]ingredmond';
 const STARTING_CHIPS_QTY = process.env.STARTING_CHIPS_QTY || 2500;
 const CHARITY_NAVIGATOR_APP_ID = process.env.CHARITY_NAVIGATOR_APP_ID || null; // todo: add this when ready for testing
@@ -170,8 +172,10 @@ app.post("/create-user", (req, res, next) => {
                             numberOfChips: STARTING_CHIPS_QTY,
                             netChipsThisMonth: 0,
                             netChipsThisWeek: 0,
-                            winningNetChipsLastMonth: 0,
-                            winningNetChipsLastWeek: 0
+                            netChipsLastMonth: 0,
+                            netChipsLastWeek: 0,
+                            moneyEarned: 0,
+                            moneyDonated: 0
                         };
                         db.collection('players').insertOne(player, (err) => {
                             if (err) {
@@ -547,7 +551,7 @@ getNetScore = (player, rankingType, timeType) => {
             netScore = player.netChipsThisMonth;
         }
         else { // last
-            netScore = player.winningNetChipsLastMonth;
+            netScore = player.netChipsLastMonth;
         }
     }
     else { // week 
@@ -555,7 +559,7 @@ getNetScore = (player, rankingType, timeType) => {
             netScore = player.netChipsThisWeek;
         }
         else { // last
-            netScore = player.winningNetChipsLastWeek;
+            netScore = player.netChipsLastWeek;
         }
     }
 
@@ -573,7 +577,7 @@ app.post("/rankings/:rankingType/:timeType", (req, res, next) => {
                     sortAction.netChipsThisMonth = -1;
                 }
                 else { // last
-                    sortAction.winningNetChipsLastMonth = -1;
+                    sortAction.netChipsLastMonth = -1;
                 }
             }
             else { // week 
@@ -581,7 +585,7 @@ app.post("/rankings/:rankingType/:timeType", (req, res, next) => {
                     sortAction.netChipsThisWeek = -1;
                 }
                 else { // last
-                    sortAction.winningNetChipsLastWeek = -1;
+                    sortAction.netChipsLastWeek = -1;
                 }
             }
 
@@ -616,6 +620,43 @@ app.post("/rankings/:rankingType/:timeType", (req, res, next) => {
     })
 })
 
+app.post("/player-account", (req, res, next) => {
+    verifyToken(req.body.token, res, playerName => {
+        getDb(res, db => {
+            db.collection('players').findOne(
+                { name: { $eq: playerName } },
+                (err, player) => {
+                    if (err) {
+                        handleError('Error finding player by name ' + playerName, err, res);
+                    }
+                    else if (!player) {
+                        res.status(404).send({ error: 'No player found with that name.' });
+                    }
+                    else {
+                        res.status(200).send({
+                            moneyEarned: player.moneyEarned,
+                            moneyDonated: player.moneyDonated
+                        });
+                    }
+                }
+            )
+        })
+    })
+})
+
+const mapCharityNavigatorResults = (results) => {
+    return results.map(result => {
+        return {
+            charityNavigatorURL: result.charityNavigatorURL,
+            mission: result.mission,
+            websiteURL: result.websiteURL,
+            ratingImage: result.currentRating.ratingImage.large,
+            ratingValue: result.currentRating.rating,
+            category: result.category.categoryName
+        };
+    })
+}
+
 app.post("/charities/search", (req, res, next) => {
     verifyToken(req.body.token, res, () => {
         if (CHARITY_NAVIGATOR_APP_ID && CHARITY_NAVIGATOR_API_KEY) {
@@ -627,10 +668,18 @@ app.post("/charities/search", (req, res, next) => {
                 "&minRating=3")
             .then(
                 queryResponse => {
-                    res.status(200).send(queryResponse);
+                    if (queryResponse.ok) {
+                        queryResponse.json().then(responseBody => {
+                            const mappedResult = mapCharityNavigatorResults(responseBody);
+                            res.status(200).send(mappedResult);
+                        })
+                    }
+                    else {
+                        handleError('There was a problem searching charities.', err, res);
+                    }
                 },
                 err => {
-                    res.status(500).send({ error: 'There was a problem searching charities.' });
+                    handleError('There was a problem searching charities.', err, res);
                 }
             )
         }
@@ -1430,8 +1479,8 @@ app.post("/charities/search", (req, res, next) => {
 
             //#endregion
 
-            
-            res.status(200).send(testResult);
+            const mappedResult = mapCharityNavigatorResults(testResult);
+            res.status(200).send(mappedResult);
             // data returned (relevant)
             /**
              * {
