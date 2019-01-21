@@ -654,7 +654,8 @@ const mapCharityNavigatorResults = (results) => {
             websiteURL: result.websiteURL,
             ratingImage: result.currentRating.ratingImage.large,
             ratingValue: result.currentRating.rating,
-            category: result.category.categoryName
+            category: result.category.categoryName,
+            name: result.charityName
         };
     })
 }
