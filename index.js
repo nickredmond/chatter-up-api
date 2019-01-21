@@ -1479,6 +1479,8 @@ app.post("/charities/search", (req, res, next) => {
 
             //#endregion
 
+            console.log('queried charities for "' + req.body.query + '"')
+            
             const mappedResult = mapCharityNavigatorResults(testResult);
             res.status(200).send(mappedResult);
             // data returned (relevant)
