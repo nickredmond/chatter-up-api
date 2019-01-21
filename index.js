@@ -6,6 +6,8 @@ const uuid = require('uuid/v1'); // v1 is timestamp-based
 const jwt = require('jsonwebtoken');
 const JWT_SECRET = process.env.JWT_SECRET || 'nick[expletive]ingredmond';
 const STARTING_CHIPS_QTY = process.env.STARTING_CHIPS_QTY || 2500;
+const CHARITY_NAVIGATOR_APP_ID = process.env.CHARITY_NAVIGATOR_APP_ID || null; // todo: add this when ready for testing
+const CHARITY_NAVIGATOR_API_KEY = process.env.CHARITY_NAVIGATOR_API_KEY || null;
 
 Date.prototype.addHours = function(h) {    
     this.setTime(this.getTime() + (h*60*60*1000)); 
@@ -614,5 +616,836 @@ app.post("/rankings/:rankingType/:timeType", (req, res, next) => {
     })
 })
 
-// todo: endpoints to deduct and add chips from/to players
-// deduct when joining table, add when leaving table or when winner
+app.post("/charities/search", (req, res, next) => {
+    verifyToken(req.body.token, res, () => {
+        if (CHARITY_NAVIGATOR_APP_ID && CHARITY_NAVIGATOR_API_KEY) {
+            fetch("https://api.data.charitynavigator.org/v2/Organizations?" + 
+                "app_id=" + CHARITY_NAVIGATOR_APP_ID + 
+                "&app_key=" + CHARITY_NAVIGATOR_API_KEY + 
+                "&pageSize=25&" + 
+                "search=" + req.body.query + 
+                "&minRating=3")
+            .then(
+                queryResponse => {
+                    res.status(200).send(queryResponse);
+                },
+                err => {
+                    res.status(500).send({ error: 'There was a problem searching charities.' });
+                }
+            )
+        }
+        else {
+            //#region Test Result
+
+            const testResult = [
+                {
+                  "charityNavigatorURL": "https://www.charitynavigator.org/?bay=search.summary&orgid=15556&utm_source=DataAPI&utm_content=9af5afa3",
+                  "mission": "Founded in 1944, The Jewish Community Relations Council (JCRC) works to define and advance the values, interests and priorities of the organized Jewish community of Greater Boston in the public square. To achieve our shared values effectively, JCRC and the Greater Boston Jewish community work toward a strong infrastructure of community relations, articulated through building our community's connection and commitment to civil society, developing the next generation of Jewish leaders, weaving a strong network of Jewish organizations, and investing in deep ties with actors in the public square.",
+                  "websiteURL": "http://www.jcrcboston.org/",
+                  "tagLine": "Defining and advancing the values, interests and priorities of the organized Jewish community of Greater Boston in the public square.",
+                  "charityName": "Jewish Community Relations Council",
+                  "ein": "042104347",
+                  "currentRating": {
+                    "ratingImage": {
+                      "small": "https://d20umu42aunjpx.cloudfront.net/_gfx_/icons/stars/4starsb.png",
+                      "large": "https://d20umu42aunjpx.cloudfront.net/_gfx_/icons/stars/4stars.png"
+                    },
+                    "rating": 4
+                  },
+                  "category": {
+                    "categoryName": "Religion",
+                    "categoryID": 9,
+                    "charityNavigatorURL": "https://www.charitynavigator.org/index.cfm?bay=search.categories&categoryid=9&utm_source=DataAPI&utm_content=9af5afa3",
+                    "image": "https://d20umu42aunjpx.cloudfront.net/_gfx_/icons/categories/public.png?utm_source=DataAPI&utm_content=9af5afa3"
+                  },
+                  "cause": {
+                    "causeID": 26,
+                    "causeName": "Religious Activities",
+                    "charityNavigatorURL": "https://www.charitynavigator.org/index.cfm?bay=search.results&cgid=9&cuid=26&utm_source=DataAPI&utm_content=9af5afa3",
+                    "image": "https://d20umu42aunjpx.cloudfront.net/_gfx_/causes/small/religious_activities.gif?utm_source=DataAPI&utm_content=9af5afa3"
+                  },
+                  "irsClassification": {
+                    "deductibility": "Contributions are deductible",
+                    "subsection": "501(c)(3)",
+                    "assetAmount": 1132459,
+                    "nteeType": "International, Foreign Affairs and National Security",
+                    "nteeSuffix": "Z",
+                    "incomeAmount": 2541781,
+                    "filingRequirement": "990 (all other) or 990EZ return",
+                    "classification": "Charitable Organization",
+                    "latest990": "September, 2017",
+                    "rulingDate": "June, 1951",
+                    "nteeCode": "Q70",
+                    "groupName": null,
+                    "deductibilityCode": "1",
+                    "affiliation": "Independent - the organization is an independent organization or an independent auxiliary (i.e., not affiliated with a National, Regional, or Geographic grouping of organizations).",
+                    "foundationStatus": "Organization which receives a substantial part of its support from a governmental unit or the general public   170(b)(1)(A)(vi)",
+                    "nteeClassification": "International Human Rights",
+                    "accountingPeriod": "September",
+                    "deductibilityDetail": null,
+                    "exemptOrgStatus": "Unconditional Exemption",
+                    "exemptOrgStatusCode": "01",
+                    "nteeLetter": "Q"
+                  },
+                  "mailingAddress": {
+                    "country": null,
+                    "stateOrProvince": "MA",
+                    "city": "Boston",
+                    "postalCode": "02110",
+                    "streetAddress1": "126 High Street",
+                    "streetAddress2": null
+                  },
+                  "advisories": {
+                    "severity": null,
+                    "active": {
+                      "_rapid_links": {
+                        "related": {
+                          "href": "https://api.data.charitynavigator.org/v2/Organizations/042104347/Advisories?status=ACTIVE"
+                        }
+                      }
+                    }
+                  },
+                  "organization": {
+                    "charityName": "Jewish Community Relations Council",
+                    "ein": "042104347",
+                    "charityNavigatorURL": "https://www.charitynavigator.org/?bay=search.summary&orgid=15556&utm_source=DataAPI&utm_content=9af5afa3",
+                    "_rapid_links": {
+                      "related": {
+                        "href": "https://api.data.charitynavigator.org/v2/Organizations/042104347"
+                      }
+                    }
+                  }
+                },
+                {
+                  "charityNavigatorURL": "https://www.charitynavigator.org/?bay=search.summary&orgid=5852&utm_source=DataAPI&utm_content=9af5afa3",
+                  "mission": "The Santa Barbara Foundation is a community foundation established in 1928 to enrich the lives of the people of Santa Barbara County through philanthropy. The Foundation achieves this by responding to community needs well as by serving those who wish to carry out their philanthropy in Santa Barbara County and beyond. The Foundation serves as a leader, catalyst, and resource for philanthropy. We build and prudently manage a growing endowment for the community's present and future needs. We provide secure, flexible and effective opportunities for donors to improve their community. We strive for measurable community improvement through strategic funding in such fields as education, personal development, health, human services, culture, recreation, community enhancement, and the environment.",
+                  "websiteURL": "http://www.sbfoundation.org/",
+                  "tagLine": "For good. For ever.",
+                  "charityName": "Santa Barbara Foundation",
+                  "ein": "951866094",
+                  "currentRating": {
+                    "ratingImage": {
+                      "small": "https://d20umu42aunjpx.cloudfront.net/_gfx_/icons/stars/4starsb.png",
+                      "large": "https://d20umu42aunjpx.cloudfront.net/_gfx_/icons/stars/4stars.png"
+                    },
+                    "rating": 4
+                  },
+                  "category": {
+                    "categoryName": "Community Development",
+                    "categoryID": 10,
+                    "charityNavigatorURL": "https://www.charitynavigator.org/index.cfm?bay=search.categories&categoryid=10&utm_source=DataAPI&utm_content=9af5afa3",
+                    "image": "https://d20umu42aunjpx.cloudfront.net/_gfx_/icons/categories/religion.png?utm_source=DataAPI&utm_content=9af5afa3"
+                  },
+                  "cause": {
+                    "causeID": 22,
+                    "causeName": "Community Foundations",
+                    "charityNavigatorURL": "https://www.charitynavigator.org/index.cfm?bay=search.results&cgid=10&cuid=22&utm_source=DataAPI&utm_content=9af5afa3",
+                    "image": "https://d20umu42aunjpx.cloudfront.net/_gfx_/causes/small/community_foundations.gif?utm_source=DataAPI&utm_content=9af5afa3"
+                  },
+                  "irsClassification": {
+                    "deductibility": "Contributions are deductible",
+                    "subsection": "501(c)(3)",
+                    "assetAmount": 259089047,
+                    "nteeType": "Philanthropy, Voluntarism and Grantmaking Foundations",
+                    "nteeSuffix": null,
+                    "incomeAmount": 115054645,
+                    "filingRequirement": "990 (all other) or 990EZ return",
+                    "classification": "Charitable Organization",
+                    "latest990": "December, 2016",
+                    "rulingDate": "May, 1938",
+                    "nteeCode": "T31",
+                    "groupName": null,
+                    "deductibilityCode": "1",
+                    "affiliation": "Independent - the organization is an independent organization or an independent auxiliary (i.e., not affiliated with a National, Regional, or Geographic grouping of organizations).",
+                    "foundationStatus": "Organization which receives a substantial part of its support from a governmental unit or the general public   170(b)(1)(A)(vi)",
+                    "nteeClassification": "Community Foundations",
+                    "accountingPeriod": "December",
+                    "deductibilityDetail": null,
+                    "exemptOrgStatus": "Unconditional Exemption",
+                    "exemptOrgStatusCode": "01",
+                    "nteeLetter": "T"
+                  },
+                  "mailingAddress": {
+                    "country": null,
+                    "stateOrProvince": "CA",
+                    "city": "Santa Barbara",
+                    "postalCode": "93101",
+                    "streetAddress1": "1111 Chapala Street",
+                    "streetAddress2": "Suite 200"
+                  },
+                  "advisories": {
+                    "severity": null,
+                    "active": {
+                      "_rapid_links": {
+                        "related": {
+                          "href": "https://api.data.charitynavigator.org/v2/Organizations/951866094/Advisories?status=ACTIVE"
+                        }
+                      }
+                    }
+                  },
+                  "organization": {
+                    "charityName": "Santa Barbara Foundation",
+                    "ein": "951866094",
+                    "charityNavigatorURL": "https://www.charitynavigator.org/?bay=search.summary&orgid=5852&utm_source=DataAPI&utm_content=9af5afa3",
+                    "_rapid_links": {
+                      "related": {
+                        "href": "https://api.data.charitynavigator.org/v2/Organizations/951866094"
+                      }
+                    }
+                  }
+                },
+                {
+                  "charityNavigatorURL": "https://www.charitynavigator.org/?bay=search.summary&orgid=4535&utm_source=DataAPI&utm_content=9af5afa3",
+                  "mission": "Since 1951 The Community Foundation for Greater Atlanta has been connecting community members, nonprofits and other partners to strengthen the Atlanta region through philanthropy. There are more than 700 community foundations across the country each with one goal - to create a vital, philanthropic community within their geographic area. The Community Foundation for Greater Atlanta does that right here in Atlanta within our 23-county region. As a community foundation, we focus on four key goals: engaging our community; strengthening our region's non-profits; advancing public will; and practicing organizational excellence.",
+                  "websiteURL": "http://www.cfgreateratlanta.org",
+                  "tagLine": "Connecting passion with purpose",
+                  "charityName": "The Community Foundation for Greater Atlanta",
+                  "ein": "581344646",
+                  "currentRating": {
+                    "ratingImage": {
+                      "small": "https://d20umu42aunjpx.cloudfront.net/_gfx_/icons/stars/4starsb.png",
+                      "large": "https://d20umu42aunjpx.cloudfront.net/_gfx_/icons/stars/4stars.png"
+                    },
+                    "rating": 4
+                  },
+                  "category": {
+                    "categoryName": "Community Development",
+                    "categoryID": 10,
+                    "charityNavigatorURL": "https://www.charitynavigator.org/index.cfm?bay=search.categories&categoryid=10&utm_source=DataAPI&utm_content=9af5afa3",
+                    "image": "https://d20umu42aunjpx.cloudfront.net/_gfx_/icons/categories/religion.png?utm_source=DataAPI&utm_content=9af5afa3"
+                  },
+                  "cause": {
+                    "causeID": 22,
+                    "causeName": "Community Foundations",
+                    "charityNavigatorURL": "https://www.charitynavigator.org/index.cfm?bay=search.results&cgid=10&cuid=22&utm_source=DataAPI&utm_content=9af5afa3",
+                    "image": "https://d20umu42aunjpx.cloudfront.net/_gfx_/causes/small/community_foundations.gif?utm_source=DataAPI&utm_content=9af5afa3"
+                  },
+                  "irsClassification": {
+                    "deductibility": "Contributions are deductible",
+                    "subsection": "501(c)(3)",
+                    "assetAmount": 748589938,
+                    "nteeType": "Philanthropy, Voluntarism and Grantmaking Foundations",
+                    "nteeSuffix": "0",
+                    "incomeAmount": 302002015,
+                    "filingRequirement": "990 (all other) or 990EZ return",
+                    "classification": "Charitable Organization",
+                    "latest990": "December, 2016",
+                    "rulingDate": "October, 1977",
+                    "nteeCode": "T31",
+                    "groupName": null,
+                    "deductibilityCode": "1",
+                    "affiliation": "Independent - the organization is an independent organization or an independent auxiliary (i.e., not affiliated with a National, Regional, or Geographic grouping of organizations).",
+                    "foundationStatus": "Organization which receives a substantial part of its support from a governmental unit or the general public   170(b)(1)(A)(vi)",
+                    "nteeClassification": "Community Foundations",
+                    "accountingPeriod": "December",
+                    "deductibilityDetail": null,
+                    "exemptOrgStatus": "Unconditional Exemption",
+                    "exemptOrgStatusCode": "01",
+                    "nteeLetter": "T"
+                  },
+                  "mailingAddress": {
+                    "country": null,
+                    "stateOrProvince": "GA",
+                    "city": "Atlanta",
+                    "postalCode": "30303    ",
+                    "streetAddress1": "191 Peachtree Street, NE",
+                    "streetAddress2": "Suite 1000, Tenth Floor"
+                  },
+                  "advisories": {
+                    "severity": null,
+                    "active": {
+                      "_rapid_links": {
+                        "related": {
+                          "href": "https://api.data.charitynavigator.org/v2/Organizations/581344646/Advisories?status=ACTIVE"
+                        }
+                      }
+                    }
+                  },
+                  "organization": {
+                    "charityName": "The Community Foundation for Greater Atlanta",
+                    "ein": "581344646",
+                    "charityNavigatorURL": "https://www.charitynavigator.org/?bay=search.summary&orgid=4535&utm_source=DataAPI&utm_content=9af5afa3",
+                    "_rapid_links": {
+                      "related": {
+                        "href": "https://api.data.charitynavigator.org/v2/Organizations/581344646"
+                      }
+                    }
+                  }
+                },
+                {
+                  "charityNavigatorURL": "https://www.charitynavigator.org/?bay=search.summary&orgid=15595&utm_source=DataAPI&utm_content=9af5afa3",
+                  "mission": "CISA (Community Involved in Sustaining Agriculture) strengthens farms and engages the community to build the local food economy. ",
+                  "websiteURL": "http://www.buylocalfood.org/",
+                  "tagLine": "Connecting farmers and the community",
+                  "charityName": "Community Involved in Sustaining Agriculture",
+                  "ein": "043416862",
+                  "currentRating": {
+                    "ratingImage": {
+                      "small": "https://d20umu42aunjpx.cloudfront.net/_gfx_/icons/stars/4starsb.png",
+                      "large": "https://d20umu42aunjpx.cloudfront.net/_gfx_/icons/stars/4stars.png"
+                    },
+                    "rating": 4
+                  },
+                  "category": {
+                    "categoryName": "Community Development",
+                    "categoryID": 10,
+                    "charityNavigatorURL": "https://www.charitynavigator.org/index.cfm?bay=search.categories&categoryid=10&utm_source=DataAPI&utm_content=9af5afa3",
+                    "image": "https://d20umu42aunjpx.cloudfront.net/_gfx_/icons/categories/religion.png?utm_source=DataAPI&utm_content=9af5afa3"
+                  },
+                  "cause": {
+                    "causeID": 27,
+                    "causeName": "Housing and Neighborhood Development",
+                    "charityNavigatorURL": "https://www.charitynavigator.org/index.cfm?bay=search.results&cgid=10&cuid=27&utm_source=DataAPI&utm_content=9af5afa3",
+                    "image": "https://d20umu42aunjpx.cloudfront.net/_gfx_/causes/small/housing.gif?utm_source=DataAPI&utm_content=9af5afa3"
+                  },
+                  "irsClassification": {
+                    "deductibility": "Contributions are deductible",
+                    "subsection": "501(c)(3)",
+                    "assetAmount": 1734559,
+                    "nteeType": "Food, Agriculture and Nutrition",
+                    "nteeSuffix": null,
+                    "incomeAmount": 1506820,
+                    "filingRequirement": "990 (all other) or 990EZ return",
+                    "classification": "Charitable Organization",
+                    "latest990": "December, 2017",
+                    "rulingDate": "March, 2000",
+                    "nteeCode": "K25",
+                    "groupName": null,
+                    "deductibilityCode": "1",
+                    "affiliation": "Independent - the organization is an independent organization or an independent auxiliary (i.e., not affiliated with a National, Regional, or Geographic grouping of organizations).",
+                    "foundationStatus": "Organization which receives a substantial part of its support from a governmental unit or the general public   170(b)(1)(A)(vi)",
+                    "nteeClassification": "Farmland Preservation",
+                    "accountingPeriod": "December",
+                    "deductibilityDetail": null,
+                    "exemptOrgStatus": "Unconditional Exemption",
+                    "exemptOrgStatusCode": "01",
+                    "nteeLetter": "K"
+                  },
+                  "mailingAddress": {
+                    "country": null,
+                    "stateOrProvince": "MA",
+                    "city": "South Deerfield",
+                    "postalCode": "01373",
+                    "streetAddress1": "One Sugarloaf Street",
+                    "streetAddress2": null
+                  },
+                  "advisories": {
+                    "severity": null,
+                    "active": {
+                      "_rapid_links": {
+                        "related": {
+                          "href": "https://api.data.charitynavigator.org/v2/Organizations/043416862/Advisories?status=ACTIVE"
+                        }
+                      }
+                    }
+                  },
+                  "organization": {
+                    "charityName": "Community Involved in Sustaining Agriculture",
+                    "ein": "043416862",
+                    "charityNavigatorURL": "https://www.charitynavigator.org/?bay=search.summary&orgid=15595&utm_source=DataAPI&utm_content=9af5afa3",
+                    "_rapid_links": {
+                      "related": {
+                        "href": "https://api.data.charitynavigator.org/v2/Organizations/043416862"
+                      }
+                    }
+                  }
+                },
+                {
+                  "charityNavigatorURL": "https://www.charitynavigator.org/?bay=search.summary&orgid=11599&utm_source=DataAPI&utm_content=9af5afa3",
+                  "mission": "At Greater Ottawa County United Way, our mission is to improve the quality of life for all Ottawa County residents by identifying pressing community challenges and focusing the community's collective power and resources to address those needs. Our vision is to create lasting change in the health & human services realm through the LIVE UNITED and \"Community Impact\" models. United Way has been making a difference in Ottawa County for nearly a century. Known in the 1920s as United Fund or Community Chest, annual fund drives to address community needs were a fixture of life in many communities in Ottawa County.",
+                  "websiteURL": "http://www.ottawaunitedway.org",
+                  "tagLine": "Live united",
+                  "charityName": "Greater Ottawa County United Way",
+                  "ein": "383522782",
+                  "currentRating": {
+                    "ratingImage": {
+                      "small": "https://d20umu42aunjpx.cloudfront.net/_gfx_/icons/stars/4starsb.png",
+                      "large": "https://d20umu42aunjpx.cloudfront.net/_gfx_/icons/stars/4stars.png"
+                    },
+                    "rating": 4
+                  },
+                  "category": {
+                    "categoryName": "Community Development",
+                    "categoryID": 10,
+                    "charityNavigatorURL": "https://www.charitynavigator.org/index.cfm?bay=search.categories&categoryid=10&utm_source=DataAPI&utm_content=9af5afa3",
+                    "image": "https://d20umu42aunjpx.cloudfront.net/_gfx_/icons/categories/religion.png?utm_source=DataAPI&utm_content=9af5afa3"
+                  },
+                  "cause": {
+                    "causeID": 42,
+                    "causeName": "United Ways",
+                    "charityNavigatorURL": "https://www.charitynavigator.org/index.cfm?bay=search.results&cgid=10&cuid=42&utm_source=DataAPI&utm_content=9af5afa3",
+                    "image": "https://d20umu42aunjpx.cloudfront.net/_gfx_/causes/small/United_Way.gif?utm_source=DataAPI&utm_content=9af5afa3"
+                  },
+                  "irsClassification": {
+                    "deductibility": "Contributions are deductible",
+                    "subsection": "501(c)(3)",
+                    "assetAmount": 3407731,
+                    "nteeType": "Philanthropy, Voluntarism and Grantmaking Foundations",
+                    "nteeSuffix": null,
+                    "incomeAmount": 3378427,
+                    "filingRequirement": "990 (all other) or 990EZ return",
+                    "classification": "Charitable Organization",
+                    "latest990": "March, 2018",
+                    "rulingDate": "July, 2000",
+                    "nteeCode": "T31",
+                    "groupName": null,
+                    "deductibilityCode": "1",
+                    "affiliation": "Independent - the organization is an independent organization or an independent auxiliary (i.e., not affiliated with a National, Regional, or Geographic grouping of organizations).",
+                    "foundationStatus": "Organization which receives a substantial part of its support from a governmental unit or the general public   170(b)(1)(A)(vi)",
+                    "nteeClassification": "Community Foundations",
+                    "accountingPeriod": "March",
+                    "deductibilityDetail": null,
+                    "exemptOrgStatus": "Unconditional Exemption",
+                    "exemptOrgStatusCode": "01",
+                    "nteeLetter": "T"
+                  },
+                  "mailingAddress": {
+                    "country": null,
+                    "stateOrProvince": "MI",
+                    "city": "Holland",
+                    "postalCode": "49423",
+                    "streetAddress1": "115 Clover Street",
+                    "streetAddress2": "Suite 300"
+                  },
+                  "donationAddress": {
+                    "country": null,
+                    "stateOrProvince": "MI",
+                    "city": "Holland",
+                    "postalCode": "49422",
+                    "streetAddress1": "PO Box 1349",
+                    "streetAddress2": null
+                  },
+                  "advisories": {
+                    "severity": null,
+                    "active": {
+                      "_rapid_links": {
+                        "related": {
+                          "href": "https://api.data.charitynavigator.org/v2/Organizations/383522782/Advisories?status=ACTIVE"
+                        }
+                      }
+                    }
+                  },
+                  "organization": {
+                    "charityName": "Greater Ottawa County United Way",
+                    "ein": "383522782",
+                    "charityNavigatorURL": "https://www.charitynavigator.org/?bay=search.summary&orgid=11599&utm_source=DataAPI&utm_content=9af5afa3",
+                    "_rapid_links": {
+                      "related": {
+                        "href": "https://api.data.charitynavigator.org/v2/Organizations/383522782"
+                      }
+                    }
+                  }
+                },
+                {
+                  "charityNavigatorURL": "https://www.charitynavigator.org/?bay=search.summary&orgid=5104&utm_source=DataAPI&utm_content=9af5afa3",
+                  "mission": "In 1968, community leaders formed The Community Foundation Serving Richmond and Central Virginia to provide stewardship for permanent endowments that enhance the lives of area citizens. The Community Foundation enhances the quality of life in Richmond and Central Virginia by inspiring philanthropy and civic engagement, empowering donors and community partners and providing stewardship of community resources. With combined assets of $667 million, The Community Foundation is one of the largest grantmakers in Virginia.",
+                  "websiteURL": "http://www.tcfrichmond.org",
+                  "tagLine": "You make the difference. We make it possible.",
+                  "charityName": "The Community Foundation Serving Richmond and Central Virginia",
+                  "ein": "237009135",
+                  "currentRating": {
+                    "ratingImage": {
+                      "small": "https://d20umu42aunjpx.cloudfront.net/_gfx_/icons/stars/4starsb.png",
+                      "large": "https://d20umu42aunjpx.cloudfront.net/_gfx_/icons/stars/4stars.png"
+                    },
+                    "rating": 4
+                  },
+                  "category": {
+                    "categoryName": "Community Development",
+                    "categoryID": 10,
+                    "charityNavigatorURL": "https://www.charitynavigator.org/index.cfm?bay=search.categories&categoryid=10&utm_source=DataAPI&utm_content=9af5afa3",
+                    "image": "https://d20umu42aunjpx.cloudfront.net/_gfx_/icons/categories/religion.png?utm_source=DataAPI&utm_content=9af5afa3"
+                  },
+                  "cause": {
+                    "causeID": 22,
+                    "causeName": "Community Foundations",
+                    "charityNavigatorURL": "https://www.charitynavigator.org/index.cfm?bay=search.results&cgid=10&cuid=22&utm_source=DataAPI&utm_content=9af5afa3",
+                    "image": "https://d20umu42aunjpx.cloudfront.net/_gfx_/causes/small/community_foundations.gif?utm_source=DataAPI&utm_content=9af5afa3"
+                  },
+                  "irsClassification": {
+                    "deductibility": "Contributions are deductible",
+                    "subsection": "501(c)(3)",
+                    "assetAmount": 492092439,
+                    "nteeType": "Philanthropy, Voluntarism and Grantmaking Foundations",
+                    "nteeSuffix": "0",
+                    "incomeAmount": 60315332,
+                    "filingRequirement": "990 (all other) or 990EZ return",
+                    "classification": "Charitable Organization",
+                    "latest990": "December, 2016",
+                    "rulingDate": "March, 1970",
+                    "nteeCode": "T31",
+                    "groupName": null,
+                    "deductibilityCode": "1",
+                    "affiliation": "Independent - the organization is an independent organization or an independent auxiliary (i.e., not affiliated with a National, Regional, or Geographic grouping of organizations).",
+                    "foundationStatus": "Organization which receives a substantial part of its support from a governmental unit or the general public   170(b)(1)(A)(vi)",
+                    "nteeClassification": "Community Foundations",
+                    "accountingPeriod": "December",
+                    "deductibilityDetail": null,
+                    "exemptOrgStatus": "Unconditional Exemption",
+                    "exemptOrgStatusCode": "01",
+                    "nteeLetter": "T"
+                  },
+                  "mailingAddress": {
+                    "country": null,
+                    "stateOrProvince": "VA",
+                    "city": "Richmond",
+                    "postalCode": "23225",
+                    "streetAddress1": "7501 Boulders View Drive",
+                    "streetAddress2": "Suite 110"
+                  },
+                  "advisories": {
+                    "severity": null,
+                    "active": {
+                      "_rapid_links": {
+                        "related": {
+                          "href": "https://api.data.charitynavigator.org/v2/Organizations/237009135/Advisories?status=ACTIVE"
+                        }
+                      }
+                    }
+                  },
+                  "organization": {
+                    "charityName": "The Community Foundation Serving Richmond and Central Virginia",
+                    "ein": "237009135",
+                    "charityNavigatorURL": "https://www.charitynavigator.org/?bay=search.summary&orgid=5104&utm_source=DataAPI&utm_content=9af5afa3",
+                    "_rapid_links": {
+                      "related": {
+                        "href": "https://api.data.charitynavigator.org/v2/Organizations/237009135"
+                      }
+                    }
+                  }
+                },
+                {
+                  "charityNavigatorURL": "https://www.charitynavigator.org/?bay=search.summary&orgid=8230&utm_source=DataAPI&utm_content=9af5afa3",
+                  "mission": "The United Way of Lake & Sumter Counties helps solve specific community issues that impact local families, seniors, children, and the disabled. Each community is different, therefore each community's issues are different. It is important to support your community where you live because it benefits those in need, your community as a whole, the local economy and you and your family as well. We raise money for various agencies within Lake and Sumter Counties.",
+                  "websiteURL": "http://www.uwls.org",
+                  "tagLine": "Live united",
+                  "charityName": "United Way of Lake & Sumter Counties",
+                  "ein": "591143758",
+                  "currentRating": {
+                    "ratingImage": {
+                      "small": "https://d20umu42aunjpx.cloudfront.net/_gfx_/icons/stars/4starsb.png",
+                      "large": "https://d20umu42aunjpx.cloudfront.net/_gfx_/icons/stars/4stars.png"
+                    },
+                    "rating": 4
+                  },
+                  "category": {
+                    "categoryName": "Community Development",
+                    "categoryID": 10,
+                    "charityNavigatorURL": "https://www.charitynavigator.org/index.cfm?bay=search.categories&categoryid=10&utm_source=DataAPI&utm_content=9af5afa3",
+                    "image": "https://d20umu42aunjpx.cloudfront.net/_gfx_/icons/categories/religion.png?utm_source=DataAPI&utm_content=9af5afa3"
+                  },
+                  "cause": {
+                    "causeID": 42,
+                    "causeName": "United Ways",
+                    "charityNavigatorURL": "https://www.charitynavigator.org/index.cfm?bay=search.results&cgid=10&cuid=42&utm_source=DataAPI&utm_content=9af5afa3",
+                    "image": "https://d20umu42aunjpx.cloudfront.net/_gfx_/causes/small/United_Way.gif?utm_source=DataAPI&utm_content=9af5afa3"
+                  },
+                  "irsClassification": {
+                    "deductibility": "Contributions are deductible",
+                    "subsection": "501(c)(3)",
+                    "assetAmount": 2766995,
+                    "nteeType": "Philanthropy, Voluntarism and Grantmaking Foundations",
+                    "nteeSuffix": null,
+                    "incomeAmount": 1896453,
+                    "filingRequirement": "990 (all other) or 990EZ return",
+                    "classification": "Charitable Organization",
+                    "latest990": "June, 2017",
+                    "rulingDate": "September, 1967",
+                    "nteeCode": "T70",
+                    "groupName": null,
+                    "deductibilityCode": "1",
+                    "affiliation": "Independent - the organization is an independent organization or an independent auxiliary (i.e., not affiliated with a National, Regional, or Geographic grouping of organizations).",
+                    "foundationStatus": "Organization which receives a substantial part of its support from a governmental unit or the general public   170(b)(1)(A)(vi)",
+                    "nteeClassification": "Fund Raising Organizations That Cross Categories",
+                    "accountingPeriod": "June",
+                    "deductibilityDetail": null,
+                    "exemptOrgStatus": "Unconditional Exemption",
+                    "exemptOrgStatusCode": "01",
+                    "nteeLetter": "T"
+                  },
+                  "mailingAddress": {
+                    "country": null,
+                    "stateOrProvince": "FL",
+                    "city": "Leesburg",
+                    "postalCode": "34788",
+                    "streetAddress1": "32644 Blossom Lane",
+                    "streetAddress2": null
+                  },
+                  "advisories": {
+                    "severity": null,
+                    "active": {
+                      "_rapid_links": {
+                        "related": {
+                          "href": "https://api.data.charitynavigator.org/v2/Organizations/591143758/Advisories?status=ACTIVE"
+                        }
+                      }
+                    }
+                  },
+                  "organization": {
+                    "charityName": "United Way of Lake & Sumter Counties",
+                    "ein": "591143758",
+                    "charityNavigatorURL": "https://www.charitynavigator.org/?bay=search.summary&orgid=8230&utm_source=DataAPI&utm_content=9af5afa3",
+                    "_rapid_links": {
+                      "related": {
+                        "href": "https://api.data.charitynavigator.org/v2/Organizations/591143758"
+                      }
+                    }
+                  }
+                },
+                {
+                  "charityNavigatorURL": "https://www.charitynavigator.org/?bay=search.summary&orgid=3547&utm_source=DataAPI&utm_content=9af5afa3",
+                  "mission": "The mission of the Community Foundation of Greater Memphis is to strengthen our community through philanthropy. To accomplish this mission, we: (1) develop and effectively manage charitable funds and endowments, offering the highest levels of service and expertise to individuals, families, and institutional donors and their successors; (2) actively address the needs of the community by examining community issues, securing and distributing resources, advocating when appropriate, and convening meetings and conversations which encourage people to respond; and (3) encourage philanthropy and the growth of charitable resources among individuals, families, businesses, and community institutions. ",
+                  "websiteURL": "http://www.cfgm.org",
+                  "tagLine": "Strengthening our community through philanthropy",
+                  "charityName": "Community Foundation of Greater Memphis",
+                  "ein": "581723645",
+                  "currentRating": {
+                    "ratingImage": {
+                      "small": "https://d20umu42aunjpx.cloudfront.net/_gfx_/icons/stars/4starsb.png",
+                      "large": "https://d20umu42aunjpx.cloudfront.net/_gfx_/icons/stars/4stars.png"
+                    },
+                    "rating": 4
+                  },
+                  "category": {
+                    "categoryName": "Community Development",
+                    "categoryID": 10,
+                    "charityNavigatorURL": "https://www.charitynavigator.org/index.cfm?bay=search.categories&categoryid=10&utm_source=DataAPI&utm_content=9af5afa3",
+                    "image": "https://d20umu42aunjpx.cloudfront.net/_gfx_/icons/categories/religion.png?utm_source=DataAPI&utm_content=9af5afa3"
+                  },
+                  "cause": {
+                    "causeID": 22,
+                    "causeName": "Community Foundations",
+                    "charityNavigatorURL": "https://www.charitynavigator.org/index.cfm?bay=search.results&cgid=10&cuid=22&utm_source=DataAPI&utm_content=9af5afa3",
+                    "image": "https://d20umu42aunjpx.cloudfront.net/_gfx_/causes/small/community_foundations.gif?utm_source=DataAPI&utm_content=9af5afa3"
+                  },
+                  "irsClassification": {
+                    "deductibility": "Contributions are deductible",
+                    "subsection": "501(c)(3)",
+                    "assetAmount": 356966108,
+                    "nteeType": "Philanthropy, Voluntarism and Grantmaking Foundations",
+                    "nteeSuffix": "0",
+                    "incomeAmount": 121353702,
+                    "filingRequirement": "990 (all other) or 990EZ return",
+                    "classification": "Charitable Organization",
+                    "latest990": "April, 2017",
+                    "rulingDate": "August, 1990",
+                    "nteeCode": "T31",
+                    "groupName": null,
+                    "deductibilityCode": "1",
+                    "affiliation": "Independent - the organization is an independent organization or an independent auxiliary (i.e., not affiliated with a National, Regional, or Geographic grouping of organizations).",
+                    "foundationStatus": "Organization which receives a substantial part of its support from a governmental unit or the general public   170(b)(1)(A)(vi)",
+                    "nteeClassification": "Community Foundations",
+                    "accountingPeriod": "April",
+                    "deductibilityDetail": null,
+                    "exemptOrgStatus": "Unconditional Exemption",
+                    "exemptOrgStatusCode": "01",
+                    "nteeLetter": "T"
+                  },
+                  "mailingAddress": {
+                    "country": null,
+                    "stateOrProvince": "TN",
+                    "city": "Memphis",
+                    "postalCode": "38104",
+                    "streetAddress1": "1900 Union Avenue",
+                    "streetAddress2": null
+                  },
+                  "advisories": {
+                    "severity": null,
+                    "active": {
+                      "_rapid_links": {
+                        "related": {
+                          "href": "https://api.data.charitynavigator.org/v2/Organizations/581723645/Advisories?status=ACTIVE"
+                        }
+                      }
+                    }
+                  },
+                  "organization": {
+                    "charityName": "Community Foundation of Greater Memphis",
+                    "ein": "581723645",
+                    "charityNavigatorURL": "https://www.charitynavigator.org/?bay=search.summary&orgid=3547&utm_source=DataAPI&utm_content=9af5afa3",
+                    "_rapid_links": {
+                      "related": {
+                        "href": "https://api.data.charitynavigator.org/v2/Organizations/581723645"
+                      }
+                    }
+                  }
+                },
+                {
+                  "charityNavigatorURL": "https://www.charitynavigator.org/?bay=search.summary&orgid=17147&utm_source=DataAPI&utm_content=9af5afa3",
+                  "mission": "Loaves & Fishes Community Services has served our community since 1984. Our vision is to end hunger in our community. Our mission is to provide food and leadership in the community by uniting and mobilizing resources to empower people to be self-sufficient.",
+                  "websiteURL": "http://www.loaves-fishes.org/",
+                  "tagLine": "Ending hunger, transforming lives",
+                  "charityName": "Loaves & Fishes Community Services",
+                  "ein": "363786777",
+                  "currentRating": {
+                    "ratingImage": {
+                      "small": "https://d20umu42aunjpx.cloudfront.net/_gfx_/icons/stars/4starsb.png",
+                      "large": "https://d20umu42aunjpx.cloudfront.net/_gfx_/icons/stars/4stars.png"
+                    },
+                    "rating": 4
+                  },
+                  "category": {
+                    "categoryName": "Human Services",
+                    "categoryID": 6,
+                    "charityNavigatorURL": "https://www.charitynavigator.org/index.cfm?bay=search.categories&categoryid=6&utm_source=DataAPI&utm_content=9af5afa3",
+                    "image": "https://d20umu42aunjpx.cloudfront.net/_gfx_/icons/categories/health.png?utm_source=DataAPI&utm_content=9af5afa3"
+                  },
+                  "cause": {
+                    "causeID": 18,
+                    "causeName": "Food Banks, Food Pantries, and Food Distribution",
+                    "charityNavigatorURL": "https://www.charitynavigator.org/index.cfm?bay=search.results&cgid=6&cuid=18&utm_source=DataAPI&utm_content=9af5afa3",
+                    "image": "https://d20umu42aunjpx.cloudfront.net/_gfx_/causes/small/food_banks.gif?utm_source=DataAPI&utm_content=9af5afa3"
+                  },
+                  "irsClassification": {
+                    "deductibility": "Contributions are deductible",
+                    "subsection": "501(c)(3)",
+                    "assetAmount": 3976235,
+                    "nteeType": "Human Services - Multipurpose and Other",
+                    "nteeSuffix": "Z",
+                    "incomeAmount": 12850541,
+                    "filingRequirement": "990 (all other) or 990EZ return",
+                    "classification": "Charitable Organization",
+                    "latest990": "June, 2017",
+                    "rulingDate": "March, 1992",
+                    "nteeCode": "P20",
+                    "groupName": null,
+                    "deductibilityCode": "1",
+                    "affiliation": "Independent - the organization is an independent organization or an independent auxiliary (i.e., not affiliated with a National, Regional, or Geographic grouping of organizations).",
+                    "foundationStatus": "Organization which receives a substantial part of its support from a governmental unit or the general public   170(b)(1)(A)(vi)",
+                    "nteeClassification": "Human Service Organizations - Multipurpose",
+                    "accountingPeriod": "June",
+                    "deductibilityDetail": null,
+                    "exemptOrgStatus": "Unconditional Exemption",
+                    "exemptOrgStatusCode": "01",
+                    "nteeLetter": "P"
+                  },
+                  "mailingAddress": {
+                    "country": null,
+                    "stateOrProvince": "IL",
+                    "city": "Naperville",
+                    "postalCode": "60540",
+                    "streetAddress1": "1871 High Grove Lane",
+                    "streetAddress2": null
+                  },
+                  "advisories": {
+                    "severity": null,
+                    "active": {
+                      "_rapid_links": {
+                        "related": {
+                          "href": "https://api.data.charitynavigator.org/v2/Organizations/363786777/Advisories?status=ACTIVE"
+                        }
+                      }
+                    }
+                  },
+                  "organization": {
+                    "charityName": "Loaves & Fishes Community Services",
+                    "ein": "363786777",
+                    "charityNavigatorURL": "https://www.charitynavigator.org/?bay=search.summary&orgid=17147&utm_source=DataAPI&utm_content=9af5afa3",
+                    "_rapid_links": {
+                      "related": {
+                        "href": "https://api.data.charitynavigator.org/v2/Organizations/363786777"
+                      }
+                    }
+                  }
+                },
+                {
+                  "charityNavigatorURL": "https://www.charitynavigator.org/?bay=search.summary&orgid=12806&utm_source=DataAPI&utm_content=9af5afa3",
+                  "mission": "The Jewish Federation of Delaware works to mobilize the Jewish community to address issues, meet needs and build an agenda for the future. Our vision is to bring Jewish people together into a community coalition, grounded in Jewish teaching and heritage, to strengthen the State of Israel, the global Jewish family and local organizations in order to further the survival of the Jewish people. Our goals are to foster identification with our Jewish teaching and heritage to inspire an informed and involved community; build an agenda for the future with clearly defined priorities; take responsibility for raising funds which meet mutually agreed upon goals; allocate and manage the community's resources based upon the community agenda; provide a structure for the Jewish community to interact with the non-Jewish community; and develop Jewish leadership.",
+                  "websiteURL": "http://www.shalomdelaware.org",
+                  "tagLine": "We Grow Stronger TOGETHER",
+                  "charityName": "Jewish Federation of Delaware",
+                  "ein": "510064315",
+                  "currentRating": {
+                    "ratingImage": {
+                      "small": "https://d20umu42aunjpx.cloudfront.net/_gfx_/icons/stars/4starsb.png",
+                      "large": "https://d20umu42aunjpx.cloudfront.net/_gfx_/icons/stars/4stars.png"
+                    },
+                    "rating": 4
+                  },
+                  "category": {
+                    "categoryName": "Community Development",
+                    "categoryID": 10,
+                    "charityNavigatorURL": "https://www.charitynavigator.org/index.cfm?bay=search.categories&categoryid=10&utm_source=DataAPI&utm_content=9af5afa3",
+                    "image": "https://d20umu42aunjpx.cloudfront.net/_gfx_/icons/categories/religion.png?utm_source=DataAPI&utm_content=9af5afa3"
+                  },
+                  "cause": {
+                    "causeID": 43,
+                    "causeName": "Jewish Federations",
+                    "charityNavigatorURL": "https://www.charitynavigator.org/index.cfm?bay=search.results&cgid=10&cuid=43&utm_source=DataAPI&utm_content=9af5afa3",
+                    "image": "https://d20umu42aunjpx.cloudfront.net/_gfx_/causes/small/Jewish_Federation.jpg?utm_source=DataAPI&utm_content=9af5afa3"
+                  },
+                  "irsClassification": {
+                    "deductibility": "Contributions are deductible",
+                    "subsection": "501(c)(3)",
+                    "assetAmount": 38952702,
+                    "nteeType": null,
+                    "nteeSuffix": null,
+                    "incomeAmount": 8793138,
+                    "filingRequirement": "990 (all other) or 990EZ return",
+                    "classification": "Charitable Organization",
+                    "latest990": "June, 2017",
+                    "rulingDate": "May, 1945",
+                    "nteeCode": null,
+                    "groupName": null,
+                    "deductibilityCode": "1",
+                    "affiliation": "Independent - the organization is an independent organization or an independent auxiliary (i.e., not affiliated with a National, Regional, or Geographic grouping of organizations).",
+                    "foundationStatus": "Organization that normally receives no more than one-third of its support from gross investment income and unrelated business income and at the same time more than one-third of its support from contributions, fees, and gross receipts related to exempt purposes.  509(a)(2)",
+                    "nteeClassification": null,
+                    "accountingPeriod": "June",
+                    "deductibilityDetail": null,
+                    "exemptOrgStatus": "Unconditional Exemption",
+                    "exemptOrgStatusCode": "01",
+                    "nteeLetter": null
+                  },
+                  "mailingAddress": {
+                    "country": null,
+                    "stateOrProvince": "DE",
+                    "city": "Wilmington",
+                    "postalCode": "19803",
+                    "streetAddress1": "101 Garden of Eden Road",
+                    "streetAddress2": null
+                  },
+                  "advisories": {
+                    "severity": null,
+                    "active": {
+                      "_rapid_links": {
+                        "related": {
+                          "href": "https://api.data.charitynavigator.org/v2/Organizations/510064315/Advisories?status=ACTIVE"
+                        }
+                      }
+                    }
+                  },
+                  "organization": {
+                    "charityName": "Jewish Federation of Delaware",
+                    "ein": "510064315",
+                    "charityNavigatorURL": "https://www.charitynavigator.org/?bay=search.summary&orgid=12806&utm_source=DataAPI&utm_content=9af5afa3",
+                    "_rapid_links": {
+                      "related": {
+                        "href": "https://api.data.charitynavigator.org/v2/Organizations/510064315"
+                      }
+                    }
+                  }
+                }
+              ];
+
+            //#endregion
+
+            
+            res.status(200).send(testResult);
+            // data returned (relevant)
+            /**
+             * {
+             *      "charityNavigatorURL",
+             *      "mission",
+             *      "websiteURL",
+             *      "charityName"
+             *      "currentRating": {
+             *          "ratingImage"."large",
+             *          "rating" (number)
+             *      },
+             *      "category"."categoryName"
+             * }
+             */
+        }
+    });
+})
