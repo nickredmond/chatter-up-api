@@ -606,7 +606,9 @@ app.post("/rankings/:rankingType/:timeType", (req, res, next) => {
                             for (var i = 0; i < winnings.length; i++) {
                                 const winning = winnings[i];
                                 const winningIndex = winning.place - 1;
-                                rankings[winningIndex].winningAmount = winning.amount;
+                                if (rankings[winningIndex]) {
+                                    rankings[winningIndex].winningAmount = winning.amount;
+                                }
                             }
                             res.status(200).send(rankings);
                         })
