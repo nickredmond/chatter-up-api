@@ -622,8 +622,8 @@ app.post("/rankings/:timeType", (req, res, next) => {
                 weeklySortAction.netChipsLastWeek = -1;
             }
 
-            const monthlyRankingsCursor = db.collection('players').find().sort(monthlySortAction).limit(5).toArray();
-            const weeklylRankingsCursor = db.collection('players').find().sort(weeklySortAction).limit(5).toArray();
+            const monthlyRankingsCursor = db.collection('players').find().sort(monthlySortAction).limit(10).toArray();
+            const weeklylRankingsCursor = db.collection('players').find().sort(weeklySortAction).limit(10).toArray();
             
             let monthlyRankings = null;
             let weeklyRankings = null;
