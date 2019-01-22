@@ -566,58 +566,90 @@ getNetScore = (player, rankingType, timeType) => {
     return netScore;
 }
 
-app.post("/rankings/:rankingType/:timeType", (req, res, next) => {
+getRankings = (rankType, timeType, rankedPlayers, res, db) => {
+    // get db or pass in here
+    return new Promise((resolve, reject) => {
+        try {
+            const rankings = rankedPlayers.map(player => {
+                return { 
+                    playerName: player.name, 
+                    netScore: getNetScore(player, rankType, timeType) 
+                };
+            })
+        
+            if (timeType === 'current') {
+                db.collection('winnings').find({ type: { $eq: rankType } }, (err, winningsCursor) => {
+                    winningsCursor.toArray().then(winnings => {
+                        for (var i = 0; i < winnings.length; i++) {
+                            const winning = winnings[i];
+                            const winningIndex = winning.place - 1;
+                            if (rankings[winningIndex]) {
+                                rankings[winningIndex].winningAmount = winning.amount;
+                            }
+                        }
+                        resolve(rankings);
+                    })
+                })
+            }
+            else {
+                resolve(rankings);
+            }
+        } catch (err) {
+            reject(err);
+        }
+    })
+}
+
+checkRankingsComplete = (monthlyRankings, weeklyRankings, res) => {
+    if (monthlyRankings && weeklyRankings) {
+        res.status(200).send({ monthlyRankings, weeklyRankings });
+    }
+}
+
+app.post("/rankings/:timeType", (req, res, next) => {
     // todo: be able to pass limit? or read from db the winnings?
     verifyToken(req.body.token, res, playerName => {
         getDb(res, db => {
-            const sortAction = {};
+            const weeklySortAction = {};
+            const monthlySortAction = {};
 
-            if (req.params.rankingType === 'month') {
-                if (req.params.timeType === 'current') {
-                    sortAction.netChipsThisMonth = -1;
-                }
-                else { // last
-                    sortAction.netChipsLastMonth = -1;
-                }
+            if (req.params.timeType === 'current') {
+                monthlySortAction.netChipsThisMonth = -1;
+                weeklySortAction.netChipsThisWeek = -1;
             }
-            else { // week 
-                if (req.params.timeType === 'current') {
-                    sortAction.netChipsThisWeek = -1;
-                }
-                else { // last
-                    sortAction.netChipsLastWeek = -1;
-                }
+            else { // last/previous
+                monthlySortAction.netChipsLastMonth = -1;
+                weeklySortAction.netChipsLastWeek = -1;
             }
 
-            // todo: handle ties
-            const rankingsCursor = db.collection('players').find().sort(sortAction).limit(10).toArray();
-            rankingsCursor.then(rankedPlayers => {
-                // todo: error handling?
-                const rankings = rankedPlayers.map(player => {
-                    return { 
-                        playerName: player.name, 
-                        netScore: getNetScore(player, req.params.rankingType, req.params.timeType) 
-                    };
-                })
-
-                if (req.params.timeType === 'current') {
-                    db.collection('winnings').find({ type: { $eq: req.params.rankingType } }, (err, winningsCursor) => {
-                        winningsCursor.toArray().then(winnings => {
-                            for (var i = 0; i < winnings.length; i++) {
-                                const winning = winnings[i];
-                                const winningIndex = winning.place - 1;
-                                if (rankings[winningIndex]) {
-                                    rankings[winningIndex].winningAmount = winning.amount;
-                                }
-                            }
-                            res.status(200).send(rankings);
-                        })
-                    })
-                }
-                else {
-                    res.status(200).send(rankings);
-                }
-            })
+            const monthlyRankingsCursor = db.collection('players').find().sort(monthlySortAction).limit(5).toArray();
+            const weeklylRankingsCursor = db.collection('players').find().sort(weeklySortAction).limit(5).toArray();
+            
+            let monthlyRankings = null;
+            let weeklyRankings = null;
+            
+            monthlyRankingsCursor.then(rankedPlayers => {
+                getRankings('month', req.params.timeType, rankedPlayers, res, db).then(
+                    rankings => {
+                        monthlyRankings = rankings;
+                        checkRankingsComplete(monthlyRankings, weeklyRankings, res);
+                    },
+                    err => {
+                        handleError('Error getting winning amounts.', err, res);
+                    }
+                )
+            });
+            weeklylRankingsCursor.then(rankedPlayers => {
+                getRankings('week', req.params.timeType, rankedPlayers, res, db).then(
+                    rankings => {
+                        weeklyRankings = rankings;
+                        checkRankingsComplete(monthlyRankings, weeklyRankings, res);
+                    },
+                    err => {
+                        handleError('Error getting winning amounts.', err, res);
+                    }
+                )
+            });
         })
     })
 })
