@@ -600,8 +600,24 @@ getRankings = (rankType, timeType, rankedPlayers, res, db) => {
     })
 }
 
-checkRankingsComplete = (monthlyRankings, weeklyRankings, res) => {
-    if (monthlyRankings && weeklyRankings) {
+ensurePlayerIsInRankings = (rankings, player, rankType, timeType) => {
+    const result = rankings;
+    const isPlayerRanked = result.filter(ranking => ranking.playerName === player.name).length > 0;
+    if (!isPlayerRanked) {
+        result[result.length - 1] = {
+            playerName: player.name,
+            netScore: getNetScore(player, rankType, timeType)
+        }
+    }
+
+    return result;
+}
+
+checkRankingsComplete = (monthlyRankings, weeklyRankings, player, timeType, res) => {
+    if (monthlyRankings && weeklyRankings && player) {
+        monthlyRankings = ensurePlayerIsInRankings(monthlyRankings, player, 'month', timeType);
+        weeklyRankings = ensurePlayerIsInRankings(weeklyRankings, player, 'week', timeType);
+
         res.status(200).send({ monthlyRankings, weeklyRankings });
     }
 }
@@ -613,7 +629,8 @@ app.post("/rankings/:timeType", (req, res, next) => {
             const weeklySortAction = {};
             const monthlySortAction = {};
 
-            if (req.params.timeType === 'current') {
+            const timeType = req.params.timeType;
+            if (timeType === 'current') {
                 monthlySortAction.netChipsThisMonth = -1;
                 weeklySortAction.netChipsThisWeek = -1;
             }
@@ -622,17 +639,18 @@ app.post("/rankings/:timeType", (req, res, next) => {
                 weeklySortAction.netChipsLastWeek = -1;
             }
 
-            const monthlyRankingsCursor = db.collection('players').find().sort(monthlySortAction).limit(10).toArray();
-            const weeklylRankingsCursor = db.collection('players').find().sort(weeklySortAction).limit(10).toArray();
+            const monthlyRankingsCursor = db.collection('players').find().sort(monthlySortAction).limit(5).toArray();
+            const weeklylRankingsCursor = db.collection('players').find().sort(weeklySortAction).limit(5).toArray();
             
             let monthlyRankings = null;
             let weeklyRankings = null;
+            let player = null;
             
             monthlyRankingsCursor.then(rankedPlayers => {
-                getRankings('month', req.params.timeType, rankedPlayers, res, db).then(
+                getRankings('month', timeType, rankedPlayers, res, db).then(
                     rankings => {
                         monthlyRankings = rankings;
-                        checkRankingsComplete(monthlyRankings, weeklyRankings, res);
+                        checkRankingsComplete(monthlyRankings, weeklyRankings, player, timeType, res);
                     },
                     err => {
                         handleError('Error getting winning amounts.', err, res);
@@ -640,16 +658,26 @@ app.post("/rankings/:timeType", (req, res, next) => {
                 )
             });
             weeklylRankingsCursor.then(rankedPlayers => {
-                getRankings('week', req.params.timeType, rankedPlayers, res, db).then(
+                getRankings('week', timeType, rankedPlayers, res, db).then(
                     rankings => {
                         weeklyRankings = rankings;
-                        checkRankingsComplete(monthlyRankings, weeklyRankings, res);
+                        checkRankingsComplete(monthlyRankings, weeklyRankings, player, timeType, res);
                     },
                     err => {
                         handleError('Error getting winning amounts.', err, res);
                     }
                 )
             });
+
+            db.collection('players').findOne({ name: { $eq: playerName } }, (err, playerFound) => {
+                if (err) {
+                    handleError('Error finding player with name ' + playerName, err, res);
+                }
+                else {
+                    player = playerFound;
+                    checkRankingsComplete(monthlyRankings, weeklyRankings, player, timeType, res);
+                }
+            })
         })
     })
 })
