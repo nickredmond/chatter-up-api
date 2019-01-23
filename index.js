@@ -1522,6 +1522,22 @@ app.post("/charities/search", (req, res, next) => {
     });
 })
 
+const insertDonation = (playerName, donationAmount, charityName, db, res) => {
+    const donation = {
+        playerName,
+        donationAmount,
+        charityName
+    };
+    db.collection('donations').insertOne(donation, err => {
+        if (err) {
+            handleError('There was an error saving donation.', err, res);
+        }
+        else {
+            res.status(200).send();
+        }
+    })
+}
+
 app.put("/player/donate", (req, res, next) => {
     verifyToken(req.body.token, res, playerName => {
         getDb(res, db => {
@@ -1532,9 +1548,13 @@ app.put("/player/donate", (req, res, next) => {
                 else {
                     const moneyAvailable = (player.moneyEarned || 0) - (player.moneyDonated || 0);
                     const donationAmount = req.body.donationAmount || 0;
+                    const charityName = req.body.charityName || null;
 
                     if (donationAmount <= 0) {
                         res.status(400).send({ error: 'Donation amount greater than zero is required.' })
+                    }
+                    else if (!charityName) {
+                        res.status(400).send({ error: 'Charity name is required.' })
                     }
                     else if (moneyAvailable >= donationAmount) {
                         db.collection('players').updateOne(
@@ -1545,7 +1565,7 @@ app.put("/player/donate", (req, res, next) => {
                                     handleError('There was a problem updating player donation tally.', err, res);
                                 }
                                 else {
-                                    res.status(200).send();
+                                    insertDonation(playerName, donationAmount, charityName, db, res)
                                 }
                             }
                         )
