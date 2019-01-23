@@ -1518,20 +1518,43 @@ app.post("/charities/search", (req, res, next) => {
             
             const mappedResult = mapCharityNavigatorResults(testResult);
             res.status(200).send(mappedResult);
-            // data returned (relevant)
-            /**
-             * {
-             *      "charityNavigatorURL",
-             *      "mission",
-             *      "websiteURL",
-             *      "charityName"
-             *      "currentRating": {
-             *          "ratingImage"."large",
-             *          "rating" (number)
-             *      },
-             *      "category"."categoryName"
-             * }
-             */
         }
     });
+})
+
+app.put("/player/donate", (req, res, next) => {
+    verifyToken(req.body.token, res, playerName => {
+        getDb(res, db => {
+            db.collection('players').findOne({ name: { $eq: playerName } }, (err, player) => {
+                if (err) {
+                    handleError('Error finding player with name "' + playerName + '"', err, res);
+                }
+                else {
+                    const moneyAvailable = (player.moneyEarned || 0) - (player.moneyDonated || 0);
+                    const donationAmount = req.body.donationAmount || 0;
+
+                    if (donationAmount <= 0) {
+                        res.status(400).send({ error: 'Donation amount greater than zero is required.' })
+                    }
+                    else if (moneyAvailable >= donationAmount) {
+                        db.collection('players').updateOne(
+                            { name: playerName },
+                            { $inc: { moneyDonated: donationAmount } },
+                            err => {
+                                if (err) {
+                                    handleError('There was a problem updating player donation tally.', err, res);
+                                }
+                                else {
+                                    res.status(200).send();
+                                }
+                            }
+                        )
+                    }
+                    else {
+                        res.status(400).send({ error: 'Insufficient account balance to cover donation amount.' });
+                    }
+                }
+            })
+        })
+    })
 })
