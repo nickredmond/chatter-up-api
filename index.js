@@ -1642,8 +1642,13 @@ app.post("/donations", (req, res, next) => {
                 checkDonationQueriesComplete(donations, totalDonationsAmount, res);
             })
             amountSumCursor.get((err, value) => {
-                totalDonationsAmount = value[0].donationAmount;
-                checkDonationQueriesComplete(donations, totalDonationsAmount, res);
+                if (err) {
+                    handleError('Error calculating sum of all donations.', err, res);
+                }
+                else {
+                    totalDonationsAmount = value[0].donationAmount;
+                    checkDonationQueriesComplete(donations, totalDonationsAmount, res);
+                }
             })
         })
     })
