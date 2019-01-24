@@ -1609,12 +1609,41 @@ app.put("/player/donate", (req, res, next) => {
     })
 })
 
+const checkDonationQueriesComplete = (donations, totalDonationsAmount, res) => {
+    if (donations && (totalDonationsAmount || totalDonationsAmount === 0)) {
+        res.status(200).send({ donations, totalDonationsAmount });
+    }
+}
+
 app.post("/donations", (req, res, next) => {
     verifyToken(req.body.token, res, () => {
         getDb(res, db => {
             const donationsCursor = db.collection('donations').find().sort({ dateCreated: -1 }).limit(100).toArray();
-            donationsCursor.then(donations => {
-                res.status(200).send(donations);
+            const amountSumCursor = db.collection('donations').aggregate(
+                {
+                    $group: {
+                        _id: '',
+                        donationAmount: { $sum: '$donationAmount' }
+                    }
+                }, 
+                {
+                    $project: {
+                        _id: 0,
+                        donationAmount: '$donationAmount'
+                    }
+                } 
+            );
+            
+            let donations = null;
+            let totalDonationsAmount = null;
+
+            donationsCursor.then(sortedDonations => {
+                donations = sortedDonations;
+                checkDonationQueriesComplete(donations, totalDonationsAmount, res);
+            })
+            amountSumCursor.get((err, value) => {
+                totalDonationsAmount = value[0].donationAmount;
+                checkDonationQueriesComplete(donations, totalDonationsAmount, res);
             })
         })
     })
