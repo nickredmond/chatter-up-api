@@ -62,6 +62,7 @@ const getDb = function(res, onConnect) {
                     cachedDb.collection('tables').createIndex({ name: 'text' });
                     cachedDb.collection('players').createIndex({ netChipsThisMonth: 1 });
                     cachedDb.collection('players').createIndex({ netChipsThisWeek: 1 });
+                    cachedDb.collection('donations').createIndex({ dateCreated: -1 });
                     onConnect(cachedDb);
                 }
             });
@@ -1554,7 +1555,8 @@ const insertDonation = (playerName, donationAmount, charityName, db, res) => {
     const donation = {
         playerName,
         donationAmount,
-        charityName
+        charityName,
+        dateCreated: new Date()
     };
     db.collection('donations').insertOne(donation, err => {
         if (err) {
@@ -1606,3 +1608,14 @@ app.put("/player/donate", (req, res, next) => {
         })
     })
 })
+
+app.post("/donations", (req, res, next) => {
+    verifyToken(req.body.token, res, () => {
+        getDb(res, db => {
+            const donationsCursor = db.collection('donations').find().sort({ dateCreated: -1 }).limit(100).toArray();
+            donationsCursor.then(donations => {
+                res.status(200).send(donations);
+            })
+        })
+    })
+});
