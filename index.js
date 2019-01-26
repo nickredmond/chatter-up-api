@@ -10,6 +10,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'nick[expletive]ingredmond';
 const STARTING_CHIPS_QTY = process.env.STARTING_CHIPS_QTY || 2500;
 const CHARITY_NAVIGATOR_APP_ID = process.env.CHARITY_NAVIGATOR_APP_ID || null; // todo: add this when ready for testing
 const CHARITY_NAVIGATOR_API_KEY = process.env.CHARITY_NAVIGATOR_API_KEY || null;
+const DEFAULT_NUMBER_OF_CHIPS = process.env.DEFAULT_NUMBER_OF_CHIPS || 500;
 
 Date.prototype.addHours = function(h) {    
     this.setTime(this.getTime() + (h*60*60*1000)); 
@@ -508,6 +509,25 @@ app.put("/player/addChips", (req, res, next) => {
 app.put("/player/removeChips", (req, res, next) => {
     updatePlayerChipsCount(req, res, false);
 });
+
+app.put("/player/resetChips", (req, res, next) => {
+    verifyToken(req.body.token, res, playerName => {
+        getDb(res, db => {
+            db.collection('players').updateOne(
+                { name: { $eq: playerName } }, 
+                { $set: { numberOfChips: DEFAULT_NUMBER_OF_CHIPS } },
+                (err, result) => {
+                    if (err) {
+                        handleError('Error adding chips to player account (resetChips).', err, res);
+                    }
+                    else {
+                        res.status(200).send({ numberOfChips: DEFAULT_NUMBER_OF_CHIPS });
+                    }
+                }
+            )
+        })
+    })
+})
 
 app.post("/chips-count", (req, res, next) => {
     verifyToken(req.body.token, res, (playerName) => {
