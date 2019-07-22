@@ -16,6 +16,8 @@
     "jsonwebtoken": "^8.4.0",
     "mongodb": "^3.1.10",
     "node-fetch": "^2.3.0",
+    "pusher": "^2.2.1",
+    "pusher-js": "^5.0.0",
     "uuid": "^3.3.2"
   }
 }
