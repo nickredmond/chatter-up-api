@@ -17,6 +17,10 @@ Date.prototype.addHours = function(h) {
     this.setTime(this.getTime() + (h*60*60*1000)); 
     return this;   
 }
+Date.prototype.addMinutes = function(m) {    
+    this.setTime(this.getTime() + (m*60*1000)); 
+    return this;   
+}
 
 // todo: ALL IPs ARE WHITELISTED IN ATLAS; change this to production setup when ready
 const MongoClient = mongodb.MongoClient;//mongodb://<dbuser>:<dbpassword>@ds121282.mlab.com:21282/heroku_nmr9k8gp
@@ -210,53 +214,6 @@ const verifyToken = (token, res, onSuccess) => {
     });
 }
 
-// app.post("/table", (req, res, next) => {
-//     verifyToken(req.body.token, res, playerName => {
-//         const table = req.body.table;
-//         table.name = table.name ? table.name.toLowerCase().trim() : null;
-
-//         if (table.name) {
-//             getDb(res, (db) => {
-//                 db.collection('tables').findOne({ name: { $eq: table.name } }, (err, existingTable) => {
-//                     if (err) {
-//                         handleError('Error querying tables to verify name uniqueness.', err, res);
-//                     }
-//                     else if (existingTable) {
-//                         const errorMessage = 'Table with name ' + table.name + ' is already taken.';
-//                         res.status(400).send({ isNameTaken: true, error: errorMessage });
-//                     }
-//                     else {
-//                         const game = getNewGame(table.numberOfPlayers, table.numberOfAiPlayers);
-//                         game.createdBy = playerName;
-
-//                         db.collection('games').insertOne(game, (err) => {
-//                             if (err) {
-//                                 handleError('Error saving new game.', err, res);
-//                             }
-//                             else {
-//                                 table.gameId = game.id;
-//                                 table.numberOfHumanPlayers = 0;
-//                                 table.isFull = table.numberOfAiPlayers >= table.numberOfPlayers - 1;
-//                                 db.collection('tables').insertOne(table, (err) => {
-//                                     if (err) {
-//                                         handleError('Error saving new table.', err, res);
-//                                     }
-//                                     else {
-//                                         res.status(200).send({ gameId: game.id });
-//                                     }
-//                                 });
-//                             }
-//                         });
-//                     }
-//                 });
-//             });
-//         }
-//         else {
-//             res.status(400).send({ error: 'Table name is required.' });
-//         }
-//     })
-// });          getDb(res, (db) => {
-
 const returnError = (res, errorMessage, statusCode) => {
     const status = statusCode || 500;
     console.log('ERROR (status=' + status + '): ' + errorMessage);
@@ -358,3 +315,66 @@ app.post('/chat/message', (req, res, next) => {
         });
     })
 });
+
+const getMessagesList = async (username, db) => {
+    try {
+        const connections = await db.collection('chatConnections').find({
+            usernames: username
+        }).toArray();
+
+        if (!connections || connections.length === 0) {
+            res.status(200).send([]);
+        }
+        else {
+            const channelIds = [];
+            const usernames = [];
+            const usernamesByChannel = {};
+            connections.forEach(connection => {
+                channelIds.push(connection.channelId);
+                const otherUsername = connection.usernames.filter(name => name !== username)[0];
+                usernames.push(otherUsername);
+                usernamesByChannel[connection.channelId] = otherUsername;
+            });
+
+            const conversations = await db.collection('conversations')
+                .find({ channelId: { $in: channelIds } })
+                .project({ channelId: 1, lastMessageDate: 1, lastMessagePreview: 1 })
+                .toArray();
+            const users = await db.collection('users')
+                .find({ username: { $in: usernames } })
+                .project({ username: 1, lastOnline: 1 })
+                .toArray();
+            
+            conversations.forEach(conversation => {
+                const otherUsername = usernamesByChannel[conversation.channelId];
+                const lastOnline = users.filter(user => user.username === otherUsername)[0].lastOnline;
+                const fiveMinAgo = new Date();
+                fiveMinAgo.addMinutes(-5);
+                const isOnline = (lastOnline >= fiveMinAgo);
+
+                conversation.username = otherUsername;
+                conversation.isOnline = isOnline;
+            });
+            
+            return conversations;
+        }
+    } catch(err) {
+        console.log('ERROR /messages/list: ' + JSON.stringify(err));
+        throw err;
+    }
+}
+
+app.post('/messages/list', (req, res, next) => {
+    verifyToken(req.body.token, res, username => {
+        getDb(res, db => {
+            getMessagesList(username, db).then(
+                messagesList => {
+                    res.status(200).send(messagesList);
+                },
+                _ => {
+                    res.status(500).send();
+                }
+            );
+        })
+    });
+})
