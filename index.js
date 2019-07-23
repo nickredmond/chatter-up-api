@@ -172,18 +172,18 @@ app.post("/log-in", (req, res, next) => {
     const password = req.body.password;
 
     getDb(res, (db) => {
-        db.collection('users').findOne({ username: { $eq: username } }, (err, existingPlayer) => {
+        db.collection('users').findOne({ username: { $eq: username } }, (err, user) => {
             if (err) {
                 handleError('Error occurred while logging in.', err, res);
             }
-            else if (!existingPlayer) {
+            else if (!user) {
                 res.status(400).send({ playerExists: false, error: 'Could not find player with that username.' });
             }
-            else if (!isPasswordValid(password, existingPlayer.salt, existingPlayer.hash)) {
+            else if (!isPasswordValid(password, user.salt, user.hash)) {
                 res.status(400).send({ playerExists: true, error: 'Password is invalid.' });
             }
             else {
-                const token = generateJwt(existingPlayer.name);
+                const token = generateJwt(user.username);
                 res.status(200).send({ token });
             }
         });
@@ -292,7 +292,7 @@ app.post('/chat/connect', (req, res, next) => {
                             returnError(res, errorMessage);
                         }
                         else {
-                            res.status(200).send({ channelId });
+                            res.status(200).send(channelId);
                         }
                     })
                 }
@@ -308,7 +308,7 @@ app.post('/chat/messages', (req, res, next) => {
 
             db.collection('chatConnections').updateOne(
                 { channelId },
-                { lastConnected: new Date() }
+                { $set: { lastConnected: new Date() } }
             );
             db.collection('conversations').findOne({ channelId }, (err, conversation) => {
                 if (err || !conversation) {
