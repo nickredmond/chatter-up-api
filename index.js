@@ -224,34 +224,50 @@ app.post('/chat/connect', (req, res, next) => {
     verifyToken(req.body.token, res, username => {
         getDb(res, db => {
             const otherUsername = req.body.username;
-            const channelId = uuid();
-            const connection = {
-                channelId,
-                usernames: [username, otherUsername],
-                lastConnected: new Date()
-            };
-            const conversation = {
-                channelId,
-                lastMessageDate: null,
-                lastMessagePreview: null,
-                messages: []
-            };
             
-            db.collection('chatConnections').insertOne(connection, err => {
+            db.collection('chatConnections').findOne({
+                $and: [
+                    { usernames: username },
+                    { usernames: otherUsername }
+                ]
+            }, (err, connection) => {
                 if (err) {
-                    const errorMessage = 'Error inserting connection for users ' + username + ' and ' + otherUsername + ' with channelId ' + channelId + ', msg=' + err;
-                    returnError(res, errorMessage);
+                    returnError(res, 'Error finding channel with usernames ' + username + ' and ' + otherUsername);
+                }
+                else if (connection) {
+                    res.status(200).send(connection.channelId);
                 }
                 else {
-                    db.collection('conversations').insertOne(conversation, err => {
+                    const channelId = uuid();
+                    const connection = {
+                        channelId,
+                        usernames: [username, otherUsername],
+                        lastConnected: new Date()
+                    };
+                    const conversation = {
+                        channelId,
+                        lastMessageDate: null,
+                        lastMessagePreview: null,
+                        messages: []
+                    };
+                    
+                    db.collection('chatConnections').insertOne(connection, err => {
                         if (err) {
                             const errorMessage = 'Error inserting connection for users ' + username + ' and ' + otherUsername + ' with channelId ' + channelId + ', msg=' + err;
                             returnError(res, errorMessage);
                         }
                         else {
-                            res.status(200).send(channelId);
+                            db.collection('conversations').insertOne(conversation, err => {
+                                if (err) {
+                                    const errorMessage = 'Error inserting connection for users ' + username + ' and ' + otherUsername + ' with channelId ' + channelId + ', msg=' + err;
+                                    returnError(res, errorMessage);
+                                }
+                                else {
+                                    res.status(200).send(channelId);
+                                }
+                            })
                         }
-                    })
+                    });
                 }
             });
         });
