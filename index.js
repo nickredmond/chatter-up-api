@@ -19,9 +19,9 @@ Date.prototype.addHours = function(h) {
 }
 
 // todo: ALL IPs ARE WHITELISTED IN ATLAS; change this to production setup when ready
-const MongoClient = mongodb.MongoClient;
-const databaseUrl = process.env.MONGODB_URI || 'mongodb://localhost:27017';
-const databaseName = process.env.DATABASE_NAME || 'heroku_0l0fvk2m'; // default is sandbox
+const MongoClient = mongodb.MongoClient;//mongodb://<dbuser>:<dbpassword>@ds121282.mlab.com:21282/heroku_nmr9k8gp
+const databaseUrl = process.env.DATABASE_URI || 'mongodb://localhost:27017';
+const databaseName = process.env.DATABASE_NAME || 'localSandbox'; 
 let cachedDb = null;
 
 const allowAnyOrigin = function(req, res, next) {
@@ -71,7 +71,7 @@ app.use(bodyParser.json());
 app.use(allowAnyOrigin);
 
 const port = process.env.PORT || 8080;
-const pusher = null;
+let pusher = null;
 app.listen(port, () => {
     console.log("INFO: app started on port " + port);
 
@@ -129,7 +129,7 @@ app.post("/create-user", (req, res, next) => {
                     }
                     else {
                         const securePassword = generateSecurePassword(password);
-                        const player = {
+                        const user = {
                             username,
                             email: req.body.email,
                             hash: securePassword.hash,
@@ -140,9 +140,9 @@ app.post("/create-user", (req, res, next) => {
                             badges: [],
                             messageLists: []
                         };
-                        db.collection('users').insertOne(player, (err) => {
+                        db.collection('users').insertOne(user, (err) => {
                             if (err) {
-                                handleError('Error creating new player.', err, res);
+                                handleError('Error creating new user.', err, res);
                             }
                             else {
                                 const token = generateJwt(username);
@@ -257,7 +257,7 @@ const verifyToken = (token, res, onSuccess) => {
 //     })
 // });          getDb(res, (db) => {
 
-const returnError = (errorMessage, statusCode) => {
+const returnError = (res, errorMessage, statusCode) => {
     const status = statusCode || 500;
     console.log('ERROR (status=' + status + '): ' + errorMessage);
     res.status(status).send({ errorMessage });
@@ -283,13 +283,13 @@ app.post('/chat/connect', (req, res, next) => {
             db.collection('chatConnections').insertOne(connection, err => {
                 if (err) {
                     const errorMessage = 'Error inserting connection for users ' + username + ' and ' + otherUsername + ' with channelId ' + channelId + ', msg=' + err;
-                    returnError(errorMessage);
+                    returnError(res, errorMessage);
                 }
                 else {
                     db.collection('conversations').insertOne(conversation, err => {
                         if (err) {
                             const errorMessage = 'Error inserting connection for users ' + username + ' and ' + otherUsername + ' with channelId ' + channelId + ', msg=' + err;
-                            returnError(errorMessage);
+                            returnError(res, errorMessage);
                         }
                         else {
                             res.status(200).send({ channelId });
@@ -310,10 +310,10 @@ app.post('/chat/messages', (req, res, next) => {
                 { channelId },
                 { lastConnected: new Date() }
             );
-            db.collection('conversations').findOne({ channelId }).then((err, conversation) => {
+            db.collection('conversations').findOne({ channelId }, (err, conversation) => {
                 if (err || !conversation) {
                     const errorMessage = 'Error fetching conversation with channelId ' + channelId;
-                    returnError(errorMessage);
+                    returnError(res, errorMessage);
                 }
                 else {
                     res.status(200).send(conversation.messages);
@@ -327,14 +327,14 @@ app.post('/chat/message', (req, res, next) => {
     verifyToken(req.body.token, res, username => {
         getDb(res, db => {
             const channelId = req.body.channelId;
-            db.collection('chatConnections').findOne({ channelId }).then((err, connection) => {
+            db.collection('chatConnections').findOne({ channelId }, (err, connection) => {
                 if (err || !connection) {
                     const errorMessage = 'Error fetching chatConnection with channelId ' + channelId;
-                    returnError(errorMessage);
+                    returnError(res, errorMessage);
                 }
                 else if (!connection.usernames.includes(username)) {
                     const errorMessage = 'User ' + username + ' is not authorized to participate in chat with channelId ' + channelId;
-                    returnError(errorMessage, 401);
+                    returnError(res, errorMessage, 401);
                 }
                 else {
                     const message = {
@@ -342,13 +342,13 @@ app.post('/chat/message', (req, res, next) => {
                         dateSent: new Date(),
                         content: req.body.content
                     };
-                    db.collection('conversation').updateOne(
+                    db.collection('conversations').updateOne(
                         { channelId },
                         { $push: { messages: message } }
                     );
                     db.collection('chatConnections').updateOne(
                         { channelId },
-                        { lastConnected: new Date() }
+                        { $set: { lastConnected: new Date() } }
                     );
 
                     pusher.trigger(channelId, 'message', message);

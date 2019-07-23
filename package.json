@@ -14,7 +14,7 @@
     "crypto": "^1.0.1",
     "express": "^4.16.4",
     "jsonwebtoken": "^8.4.0",
-    "mongodb": "^3.1.10",
+    "mongodb": "^3.2.7",
     "node-fetch": "^2.3.0",
     "pusher": "^2.2.1",
     "pusher-js": "^5.0.0",
