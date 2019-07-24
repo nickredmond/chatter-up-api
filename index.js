@@ -416,8 +416,9 @@ const getUsers = async (username, db) => {
             .find({ username: { $in: recentUsernames } })
             .toArray();
 
+        const excludedUsernames = recentUsernames.concat([username]);
         const recentlyOnlineUsers = await db.collection('users')
-            .find()
+            .find({ username: { $nin: excludedUsernames } })
             .sort({ lastOnline: -1 })
             .limit(5)
             .toArray();
