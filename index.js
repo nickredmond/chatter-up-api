@@ -236,7 +236,7 @@ app.post('/chat/connect', (req, res, next) => {
                     returnError(res, 'Error finding channel with usernames ' + username + ' and ' + otherUsername);
                 }
                 else if (connection) {
-                    res.status(200).send(connection.channelId);
+                    res.status(200).send({ channelId: connection.channelId });
                 }
                 else {
                     const channelId = uuid();
@@ -264,7 +264,7 @@ app.post('/chat/connect', (req, res, next) => {
                                     returnError(res, errorMessage);
                                 }
                                 else {
-                                    res.status(200).send(channelId);
+                                    res.status(200).send({ channelId });
                                 }
                             })
                         }
