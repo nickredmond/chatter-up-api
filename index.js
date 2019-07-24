@@ -58,7 +58,8 @@ const getDb = function(res, onConnect) {
                 else {
                     cachedDb = client.db(databaseName);
                     // so you may efficiently sort by the field
-                    // cachedDb.collection('donations').createIndex({ dateCreated: -1 });
+                    cachedDb.collection('chatConnections').createIndex({ lastConnected: -1 });
+                    cachedDb.collection('users').createIndex({ lastOnline: -1 });
                     onConnect(cachedDb);
                 }
             });
@@ -332,6 +333,12 @@ app.post('/chat/message', (req, res, next) => {
     })
 });
 
+const isUserOnline = (lastOnline) => {
+    const fiveMinAgo = new Date();
+    fiveMinAgo.addMinutes(-5);
+    return lastOnline >= fiveMinAgo;
+}
+
 const getMessagesList = async (username, db) => {
     try {
         const connections = await db.collection('chatConnections').find({
@@ -364,18 +371,15 @@ const getMessagesList = async (username, db) => {
             conversations.forEach(conversation => {
                 const otherUsername = usernamesByChannel[conversation.channelId];
                 const lastOnline = users.filter(user => user.username === otherUsername)[0].lastOnline;
-                const fiveMinAgo = new Date();
-                fiveMinAgo.addMinutes(-5);
-                const isOnline = (lastOnline >= fiveMinAgo);
 
                 conversation.username = otherUsername;
-                conversation.isOnline = isOnline;
+                conversation.isOnline = isUserOnline(lastOnline);
             });
             
             return conversations;
         }
     } catch(err) {
-        console.log('ERROR /messages/list: ' + JSON.stringify(err));
+        console.log('ERROR /messages/list: ', err);
         throw err;
     }
 }
@@ -393,4 +397,59 @@ app.post('/messages/list', (req, res, next) => {
             );
         })
     });
-})
+});
+
+const getUsers = async (username, db) => {
+    try {
+        const connections = await db.collection('chatConnections')
+            .find({ usernames: username })
+            .sort({ lastConnected: -1 })
+            .limit(5)
+            .toArray();
+        const recentUsernames = connections.map(connection => {
+            const otherUsername = connection.usernames.filter(name => {
+                return name !== username;
+            })[0];
+            return otherUsername;
+        });
+        const recentlyConnectedUsers = await db.collection('users')
+            .find({ username: { $in: recentUsernames } })
+            .toArray();
+
+        const recentlyOnlineUsers = await db.collection('users')
+            .find()
+            .sort({ lastOnline: -1 })
+            .limit(5)
+            .toArray();
+        
+        const usersData = recentlyConnectedUsers.concat(recentlyOnlineUsers);
+        const users = usersData.map(user => {
+            return {
+                isOnline: isUserOnline(user.lastOnline),
+                username: user.username,
+                coolPoints: user.coolPoints,
+                badges: user.badges.length
+            };
+        });
+        
+        return users;
+    } catch(err) {
+        console.log('ERROR /users: ', err);
+        throw err;
+    }
+}
+
+app.post('/users', (req, res, next) => {
+    verifyToken(req.body.token, res, username => {
+        getDb(res, db => {
+            getUsers(username, db).then(
+                users => {
+                    res.status(200).send(users);
+                },
+                _ => {
+                    res.status(500).send();
+                }
+            )
+        });
+    });
+});
