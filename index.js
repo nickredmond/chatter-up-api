@@ -12,6 +12,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'nick[expletive]ingredmond';
 const PUSHER_APP_ID = process.env.PUSHER_APP_ID || '826720';
 const PUSHER_KEY = process.env.PUSHER_KEY || '0eff4fdefc2715d879a4';
 const PUSHER_SECRET = process.env.PUSHER_SECRET || '52e00061be61120ca513';
+const PUSHER_CLUSTER = process.env.PUSHER_CLUSTER || 'us3';
 
 Date.prototype.addHours = function(h) {    
     this.setTime(this.getTime() + (h*60*60*1000)); 
@@ -83,7 +84,8 @@ app.listen(port, () => {
     pusher = new Pusher({
         appId: PUSHER_APP_ID,
         key: PUSHER_KEY,
-        secret: PUSHER_SECRET
+        secret: PUSHER_SECRET,
+        cluster: PUSHER_CLUSTER
     });
 });
 
