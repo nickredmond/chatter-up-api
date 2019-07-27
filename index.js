@@ -211,7 +211,7 @@ const isTokenExpired = (expiry) => {
     return expiry <= currentTime;
 }
 
-// return playerName if successful
+// return username if successful
 const verifyToken = (token, res, onSuccess) => {
     jwt.verify(token, JWT_SECRET, (err, decodedToken) => {
         if (err || !decodedToken || !decodedToken.username) {
@@ -224,6 +224,14 @@ const verifyToken = (token, res, onSuccess) => {
             onSuccess(decodedToken.username);
         }
     });
+}
+
+const authenticatedDb = (req, res, onSuccess) => {
+    verifyToken(req.body.token, res, username => {
+        getDb(res, db => {
+            onSuccess(username, db);
+        });
+    })
 }
 
 const returnError = (res, errorMessage, statusCode) => {
@@ -356,10 +364,8 @@ const getMessagesList = async (username, db) => {
             usernames: username
         }).toArray();
 
-        if (!connections || connections.length === 0) {
-            res.status(200).send([]);
-        }
-        else {
+        let conversations = [];
+        if (connections && connections.length > 0) {
             const channelIds = [];
             const usernames = [];
             const usernamesByChannel = {};
@@ -370,7 +376,7 @@ const getMessagesList = async (username, db) => {
                 usernamesByChannel[connection.channelId] = otherUsername;
             });
 
-            const conversations = await db.collection('conversations')
+            conversations = await db.collection('conversations')
                 .find({ channelId: { $in: channelIds } })
                 .project({ channelId: 1, lastMessageDate: 1, lastMessagePreview: 1 })
                 .toArray();
@@ -386,9 +392,9 @@ const getMessagesList = async (username, db) => {
                 conversation.username = otherUsername;
                 conversation.isOnline = isUserOnline(lastOnline);
             });
-            
-            return conversations;
         }
+
+        return conversations;
     } catch(err) {
         console.log('ERROR /messages/list: ', err);
         throw err;
@@ -396,18 +402,16 @@ const getMessagesList = async (username, db) => {
 }
 
 app.post('/messages/list', (req, res, next) => {
-    verifyToken(req.body.token, res, username => {
-        getDb(res, db => {
-            getMessagesList(username, db).then(
-                messagesList => {
-                    res.status(200).send(messagesList);
-                },
-                _ => {
-                    res.status(500).send();
-                }
-            );
-        })
-    });
+    authenticatedDb(req, res, (username, db) => {
+        getMessagesList(username, db).then(
+            messagesList => {
+                res.status(200).send(messagesList);
+            },
+            _ => {
+                res.status(500).send();
+            }
+        );
+    })
 });
 
 const getUsers = async (username, db) => {
@@ -452,69 +456,134 @@ const getUsers = async (username, db) => {
 }
 
 app.post('/users', (req, res, next) => {
-    verifyToken(req.body.token, res, username => {
-        getDb(res, db => {
-            getUsers(username, db).then(
-                users => {
-                    res.status(200).send(users);
-                },
-                _ => {
-                    res.status(500).send();
-                }
-            )
-        });
-    });
+    authenticatedDb(req, res, (username, db) => {
+        getUsers(username, db).then(
+            users => {
+                res.status(200).send(users);
+            },
+            _ => {
+                res.status(500).send();
+            }
+        );
+    })
 });
 
+const sendVerificationCode = async (username, phoneNumber, db) => {
+    const verificationNumber = Math.round(Math.random() * 99000 + 10000);
+    await db.collection('users').updateOne(
+        { username },
+        { 
+            $set: { 
+                phoneNumber, 
+                verificationNumber,
+                isPhoneNumberConfirmed: false 
+            } 
+        }
+    );
+
+    const verificationMessage = 'Your confirmation code for TalkItOut is ' + verificationNumber + '.';
+    request.createClient(TILL_BASE).post(TILL_PATH, {
+        phone: [phoneNumber],
+        text: verificationMessage
+    }, (err, res, body) => {
+        console.log('/user/phone VERIFICATION (Till msg) status: ' + res.statusCode, err);
+    });
+}
+
+const PhoneVerification = {
+    INVALID_NUMBER: 'invalidNumber',
+    ALREADY_CONFIRMED: 'alreadyConfirmed',
+    VERIFICATION_SENT: 'verificationSent'
+};
 const verifyPhonenumber = async (username, phoneNumber, db) => {
-    let isValidNumber = false;
+    let result = false;
     
     try {
         isValidNumber = phoneNumber && phoneNumber.length >= 5; // for int'l support
         if (isValidNumber) {
-            const verificationNumber = Math.round(Math.random() * 99000 + 10000);
-            await db.collection('users').updateOne(
+            const userInfo = await db.collection('users').findOne(
                 { username },
-                { 
-                    $set: { 
-                        phoneNumber, 
-                        verificationNumber,
-                        isPhoneNumberConfirmed: false 
-                    } 
-                }
+                { verificationNumber: 1 }
             );
-
-            const verificationMessage = 'Your confirmation code for TalkItOut is ' + verificationNumber + '.';
-            request.createClient(TILL_BASE).post(TILL_PATH, {
-                phone: [phoneNumber],
-                text: verificationMessage
-            }, (err, res, body) => {
-                console.log('/user/phone VERIFICATION (Till msg) status: ' + res.statusCode, err);
-            });
+            if (userInfo.verificationNumber) {
+                result = PhoneVerification.ALREADY_CONFIRMED;
+            }
+            else {
+                await sendVerificationCode(username, phoneNumber, db);
+                result = PhoneVerification.VERIFICATION_SENT;
+            }
         }
+        else {
+            result = PhoneVerification.INVALID_NUMBER;
+        }
+
+        return result;
     } catch (err) {
         console.log('ERROR: /user/phone ', err);
+        throw err;
     }
 
     return isValidNumber;
 }
 
 app.post('/user/phone', (req, res, next) => {
-    verifyToken(req.body.token, res, username => {
-        getDb(res, db => {
-            verifyPhonenumber(username, req.body.phoneNumber, db).then(
-                isValidNumber => {
-                    if (isValidNumber) {
-                        res.status(204).send();
-                    }
-                    else {
-                        res.status(400).send({errorMessage: 'Phone number is invalid.' });
-                    }
-                },
-                _ => {
+    authenticatedDb(req, res, (username, db) => {
+        verifyPhonenumber(username, req.body.phoneNumber, db).then(
+            result => {
+                if (result === PhoneVerification.VERIFICATION_SENT) {
+                    res.status(204).send();
+                }
+                else if (result === PhoneVerification.INVALID_NUMBER) {
+                    res.status(400).send({errorMessage: 'Phone number is invalid.' });
+                }
+                else if (result === PhoneVerification.ALREADY_CONFIRMED) {
+                    res.status(400).send({errorMessage: 'Confirmation already sent.' });
+                }
+                else {
+                    console.log('ERROR /user/phone: Nick, your logic is broken ;)');
                     res.status(500).send();
                 }
-            )
-        });
+            },
+            _ => {
+                res.status(500).send();
+            }
+        );
     });
-})
+});
+
+const activatePhoneNumber = async (username, verificationNumber, db) => {
+    try {
+        const userInfo = await db.collection('users')
+            .findOne({ username }, { verificationNumber: 1 });
+        const isMatching = verificationNumber.toString() === userInfo.verificationNumber.toString();
+
+        if (isMatching) {
+            db.collection('users').updateOne(
+                { username },
+                { $set: { isPhoneNumberConfirmed: true } }
+            );
+        }
+        return isMatching;
+    } catch (err) {
+        console.log('ERROR /user/phone/verify: ', err);
+        throw err;
+    }
+}
+
+app.post('/user/phone/verify', (req, res, next) => {
+    authenticatedDb(req, res, (username, db) => {
+        activatePhoneNumber(username, req.body.verificationNumber, db).then(
+            isActivated => {
+                if (isActivated) {
+                    res.status(204).send();
+                }
+                else {
+                    res.status(400).send({errorMessage: 'Verification number doesn\'t match our records.'});
+                }
+            },
+            _ => {
+                res.status(500).send();
+            }
+        );
+    });
+});
