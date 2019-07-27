@@ -4,15 +4,15 @@ const mongodb = require('mongodb');
 var crypto = require('crypto');
 const uuid = require('uuid/v1'); // v1 is timestamp-based
 const jwt = require('jsonwebtoken');
-const fetch = require('node-fetch');
+const request = require('request-json');
 const Pusher = require('pusher');
 
 // if anyone sees this and wants to steal it... these hard-coded values are just for sandbox env ;)
-const JWT_SECRET = process.env.JWT_SECRET || 'nick[expletive]ingredmond';
-const PUSHER_APP_ID = process.env.PUSHER_APP_ID || '826720';
-const PUSHER_KEY = process.env.PUSHER_KEY || '0eff4fdefc2715d879a4';
-const PUSHER_SECRET = process.env.PUSHER_SECRET || '52e00061be61120ca513';
-const PUSHER_CLUSTER = process.env.PUSHER_CLUSTER || 'us3';
+const JWT_SECRET = process.env.JWT_SECRET;
+const PUSHER_APP_ID = process.env.PUSHER_APP_ID;
+const PUSHER_KEY = process.env.PUSHER_KEY;
+const PUSHER_SECRET = process.env.PUSHER_SECRET;
+const PUSHER_CLUSTER = process.env.PUSHER_CLUSTER;
 
 Date.prototype.addHours = function(h) {    
     this.setTime(this.getTime() + (h*60*60*1000)); 
@@ -456,3 +456,29 @@ app.post('/users', (req, res, next) => {
         });
     });
 });
+
+const verifyPhonenumber = async (username, phoneNumber, db) => {
+    let isValidNumber = false;
+    
+    try {
+        isValidNumber = phoneNumber && phoneNumber.length >= 4; // for hypothetical int'l support
+        if (isValidNumber) {
+            await db.collection('users').updateOne(
+                { username },
+                { $set: { phoneNumber, isPhoneNumberConfirmed: false } }
+            );
+        }
+    } catch (err) {
+        console.log('ERROR: /user/phone ', err);
+    }
+
+    return isValidNumber;
+}
+
+app.post('/user/phone', (req, res, next) => {
+    verifyToken(req.body.token, res, username => {
+        getDb(res, db => {
+
+        });
+    });
+})
