@@ -4,15 +4,25 @@ const mongodb = require('mongodb');
 var crypto = require('crypto');
 const uuid = require('uuid/v1'); // v1 is timestamp-based
 const jwt = require('jsonwebtoken');
+const url = require('url');
 const request = require('request-json');
 const Pusher = require('pusher');
 
-// if anyone sees this and wants to steal it... these hard-coded values are just for sandbox env ;)
+require('dotenv').config();
+
 const JWT_SECRET = process.env.JWT_SECRET;
 const PUSHER_APP_ID = process.env.PUSHER_APP_ID;
 const PUSHER_KEY = process.env.PUSHER_KEY;
 const PUSHER_SECRET = process.env.PUSHER_SECRET;
 const PUSHER_CLUSTER = process.env.PUSHER_CLUSTER;
+
+const TILL_URL = url.parse(process.env.TILL_URL);
+const TILL_BASE = TILL_URL.protocol + "//" + TILL_URL.host;
+let TILL_PATH = TILL_URL.pathname;
+if(TILL_URL.query != null) {
+    TILL_PATH += "?" + TILL_URL.query;
+}
+  
 
 Date.prototype.addHours = function(h) {    
     this.setTime(this.getTime() + (h*60*60*1000)); 
@@ -23,8 +33,7 @@ Date.prototype.addMinutes = function(m) {
     return this;   
 }
 
-// todo: ALL IPs ARE WHITELISTED IN ATLAS; change this to production setup when ready
-const MongoClient = mongodb.MongoClient;//mongodb://<dbuser>:<dbpassword>@ds121282.mlab.com:21282/heroku_nmr9k8gp
+const MongoClient = mongodb.MongoClient;
 const databaseUrl = process.env.DATABASE_URI || 'mongodb://localhost:27017';
 const databaseName = process.env.DATABASE_NAME || 'localSandbox'; 
 let cachedDb = null;
@@ -461,12 +470,27 @@ const verifyPhonenumber = async (username, phoneNumber, db) => {
     let isValidNumber = false;
     
     try {
-        isValidNumber = phoneNumber && phoneNumber.length >= 4; // for hypothetical int'l support
+        isValidNumber = phoneNumber && phoneNumber.length >= 5; // for int'l support
         if (isValidNumber) {
+            const verificationNumber = Math.round(Math.random() * 99000 + 10000);
             await db.collection('users').updateOne(
                 { username },
-                { $set: { phoneNumber, isPhoneNumberConfirmed: false } }
+                { 
+                    $set: { 
+                        phoneNumber, 
+                        verificationNumber,
+                        isPhoneNumberConfirmed: false 
+                    } 
+                }
             );
+
+            const verificationMessage = 'Your confirmation code for TalkItOut is ' + verificationNumber + '.';
+            request.createClient(TILL_BASE).post(TILL_PATH, {
+                phone: [phoneNumber],
+                text: verificationMessage
+            }, (err, res, body) => {
+                console.log('/user/phone VERIFICATION (Till msg) status: ' + res.statusCode, err);
+            });
         }
     } catch (err) {
         console.log('ERROR: /user/phone ', err);
@@ -478,7 +502,19 @@ const verifyPhonenumber = async (username, phoneNumber, db) => {
 app.post('/user/phone', (req, res, next) => {
     verifyToken(req.body.token, res, username => {
         getDb(res, db => {
-
+            verifyPhonenumber(username, req.body.phoneNumber, db).then(
+                isValidNumber => {
+                    if (isValidNumber) {
+                        res.status(204).send();
+                    }
+                    else {
+                        res.status(400).send({errorMessage: 'Phone number is invalid.' });
+                    }
+                },
+                _ => {
+                    res.status(500).send();
+                }
+            )
         });
     });
 })
