@@ -15,14 +15,9 @@ const PUSHER_APP_ID = process.env.PUSHER_APP_ID;
 const PUSHER_KEY = process.env.PUSHER_KEY;
 const PUSHER_SECRET = process.env.PUSHER_SECRET;
 const PUSHER_CLUSTER = process.env.PUSHER_CLUSTER;
-
-const TILL_URL = url.parse(process.env.TILL_URL);
-const TILL_BASE = TILL_URL.protocol + "//" + TILL_URL.host;
-let TILL_PATH = TILL_URL.pathname;
-if(TILL_URL.query != null) {
-    TILL_PATH += "?" + TILL_URL.query;
-}
-  
+const NEXMO_API_KEY = process.env.NEXMO_API_KEY;
+const NEXMO_SECRET = process.env.NEXMO_SECRET;  
+const NEXMO_SMS_NUMBER = process.env.NEXMO_SMS_NUMBER;
 
 Date.prototype.addHours = function(h) {    
     this.setTime(this.getTime() + (h*60*60*1000)); 
@@ -482,11 +477,14 @@ const sendVerificationCode = async (username, phoneNumber, db) => {
     );
 
     const verificationMessage = 'Your confirmation code for TalkItOut is ' + verificationNumber + '.';
-    request.createClient(TILL_BASE).post(TILL_PATH, {
-        phone: [phoneNumber],
+    request.createClient('https://rest.nexmo.com').post('sms/json', {
+        api_key: NEXMO_API_KEY,
+        api_secret: NEXMO_SECRET,
+        from: NEXMO_SMS_NUMBER,
+        to: phoneNumber,
         text: verificationMessage
     }, (err, res, body) => {
-        console.log('/user/phone VERIFICATION (Till msg) status: ' + res.statusCode, err);
+        console.log('/user/phone VERIFICATION (Nexmo SMS msg) status: ' + res.statusCode, err);
     });
 }
 
