@@ -91,6 +91,7 @@ app.listen(port, () => {
         secret: PUSHER_SECRET,
         cluster: PUSHER_CLUSTER
     });
+    beginListenVirtualNumbersQueue();
 });
 
 const generateHash = (plainTextPassword, salt) => {
@@ -585,3 +586,188 @@ app.post('/user/phone/verify', (req, res, next) => {
         );
     });
 });
+
+/** BEGIN: VIRTUAL NUMBERS QUEUE */
+
+const VIRTUAL_NUMBERS_QUEUE = [];
+let CURRENT_VIRTUAL_NUMBER_REQUEST = null;
+const beginListenVirtualNumbersQueue = () => {
+    console.log('>>> beginning listen to virtual numbers queue...');
+    setInterval(() => {
+        // this is spam
+        // console.log('>>> virtual# Q: busy=' + !!CURRENT_VIRTUAL_NUMBER_REQUEST + ', qSize=' + VIRTUAL_NUMBERS_QUEUE.length);
+        if (!CURRENT_VIRTUAL_NUMBER_REQUEST && VIRTUAL_NUMBERS_QUEUE.length) {
+            console.log('>>> gettingVirtual#...');
+            CURRENT_VIRTUAL_NUMBER_REQUEST = VIRTUAL_NUMBERS_QUEUE.splice(0, 1)[0];
+            const callback = CURRENT_VIRTUAL_NUMBER_REQUEST.callback;
+            const db = CURRENT_VIRTUAL_NUMBER_REQUEST.db;
+            getVirtualNumber(db).then(
+                virtualNumber => {
+                    console.log('>>> virtual# retrieved: ' + virtualNumber);
+                    callback(virtualNumber);
+                    CURRENT_VIRTUAL_NUMBER_REQUEST = null;
+                },
+                err => {
+                    console.log('>>> CRITICAL ERROR: could not retrieve virtual number -- ', err);
+                    CURRENT_VIRTUAL_NUMBER_REQUEST = null;
+                }
+            )
+        }
+    }, 500);
+}
+
+const getVirtualNumber = async (db) => {
+    try {
+        const virtualNumbers = await db.collection('virtualNumbers')
+            .find({ available: true })
+            .toArray();
+        if (virtualNumbers.length) {
+            const availableNumber = virtualNumbers[0].phoneNumber;
+            await db.collection('virtualNumbers').updateOne(
+                { phoneNumber: availableNumber },
+                { $set: { available: false } }
+            );
+            return availableNumber;
+        }
+        else {
+            console.log('eh...');
+            // todo: rent number, add to database, return
+        }
+    } catch(err) {
+        console.log('ERROR getting available virtual number (or renting one): ', err);
+        throw err;
+    }
+}
+
+const requestVirtualNumber = (db) => {
+    return new Promise((resolve, reject) => {
+        let isNumberRetrieved = false;
+        VIRTUAL_NUMBERS_QUEUE.push({
+            db,
+            callback: (virtualNumber) => {
+                console.log('>>> virtual# resolved: ' + virtualNumber);
+                isNumberRetrieved = true;
+                resolve(virtualNumber);
+            }
+        });
+        setTimeout(() => {
+            if (!isNumberRetrieved) {
+                console.log('>>> CRITICAL ERROR: virtual number was not found in 30 seconds!!');
+                reject(false);
+            }
+        }, 30000);
+    })
+}
+
+/** END: VIRTUAL NUMBERS QUEUE */
+
+const isUserAvailable = async (username, db) => {
+    try {
+        const userInfo = await db.collection('phoneCalls')
+            .find({
+                $or: [
+                    { 'from.username': username },
+                    { 'to.username': username }
+                ]
+            })
+            .project({ isActive: 1 })
+            .toArray();
+        const isAvailable = !(userInfo && userInfo.length > 0 && userInfo[0].isActive);
+        return isAvailable;
+    } catch(err) {
+        console.log('ERROR /call/initialize (isUserAvailable): ', err);
+        throw err;
+    }
+}
+
+const initializeCall = async (fromUsername, toUsername, db) => {
+    try {
+        const userInfos = await db.collection('users')
+            .find({ username: { $in: [fromUsername, toUsername] } })
+            .project({ username: 1, phoneNumber: 1 })
+            .toArray();
+        const fromPhone = userInfos.filter(user => user.username === fromUsername)[0].phoneNumber;
+        const toPhone = userInfos.filter(user => user.username === toUsername)[0].phoneNumber;
+        const virtualNumber = await requestVirtualNumber(db);
+
+        await db.collection('phoneCalls').insertOne({
+            from: {
+                username: fromUsername,
+                phoneNumber: fromPhone
+            },
+            to: {
+                username: toUsername,
+                phoneNumber: toPhone
+            },
+            virtualNumber,
+            isActive: false
+        });
+
+        return virtualNumber;
+    } catch(err) {
+        console.log('ERROR /call/initialize (initializeCall): ', err);
+        throw err;
+    }
+}
+
+app.post('/call/initialize', (req, res, next) => {
+    if (!req.body.username) {
+        res.status(400).send({errorMessage: 'Username is required.'});
+    }
+    else {
+        const toUser = req.body.username;
+        authenticatedDb(req, res, (username, db) => {
+            isUserAvailable(toUser, db).then(
+                available => {
+                    if (available) {
+                        initializeCall(username, toUser, db).then(
+                            virtualNumber => {
+                                res.status(200).send({ virtualNumber });
+                            },
+                            _ => {
+                                res.status(500).send();
+                            }
+                        );
+                    }
+                    else {
+                        res.status(400).send({errorMessage: 'User is not available at this time.'});
+                    }
+                },
+                _ => {
+                    res.status(500).send();
+                }
+            )
+        });
+    }    
+});
+
+/**
+ * NEXMO CALL WEBHOOK ENDPOINTS
+ */
+
+ app.get('/proxy-call', (req, res, next) => {
+    console.log('NEXMO PROXY-CALL (/proxy-call): ', req.query);
+    const ncco = [
+        {
+            action: 'connect',
+            eventUrl: ['https://26f7578f.ngrok.io/event'],
+            timeout: 45,
+            from: req.query.to, // virtual number being called
+            endpoint: [
+                {
+                    type: 'phone',
+                    number: '13853157801'
+                }
+            ]
+        }
+    ];
+    res.json(ncco);
+ });
+
+ // todo: on hangup, update phoneCall - isActive=false, dateEnded=new Date()
+ app.post('/event', (req, res, next) => {
+    console.log('NEXMO CALL EVENT (/event): ', req.body);
+    res.status(204).end();
+ })
+
+ /** END NEXMO WEBHOOKS */
