@@ -811,7 +811,7 @@ app.post('/call/initialize', (req, res, next) => {
 const endCall = async (virtualNumber, db) => {
     try {  
         await db.collection('phoneCalls').updateOne(
-            { virtualNumber },
+            { virtualNumber, dateEnded: null },
             { $set: {
                 isActive: false,
                 dateEnded: new Date()
@@ -829,8 +829,7 @@ const endCall = async (virtualNumber, db) => {
  app.post('/event', (req, res, next) => {
     console.log('NEXMO CALL EVENT (/event): ', req.body);
     if (req.body && req.body.status === 'completed') {
-         // todo: on hangup, update phoneCall - isActive=false, dateEnded=new Date()
-        // then set virtualNumber isAvailable=true
+         // todo: maybe check and only update DB/call if not already completed
         getDb(res, db => {
             const virtualNumber = req.body.to;
             endCall(virtualNumber, db).then(
