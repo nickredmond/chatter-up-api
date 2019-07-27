@@ -58,7 +58,12 @@ const getDb = function(res, onConnect) {
         else {
             MongoClient.connect(databaseUrl, {useNewUrlParser: true}, (err, client) => {
                 if (err) {
-                    handleError('Error connecting to database.', err, res);
+                    if (res) {
+                        handleError('Error connecting to database.', err, res);
+                    }
+                    else {
+                        console.log('no response obj for DB connection err: ', err);
+                    }
                 }
                 else {
                     cachedDb = client.db(databaseName);
@@ -745,29 +750,103 @@ app.post('/call/initialize', (req, res, next) => {
  * NEXMO CALL WEBHOOK ENDPOINTS
  */
 
+ const getNexmoCallControlObject = async (virtualNumber, fromNumber, db) => {
+     try {
+        const phoneCall = await db.collection('phoneCalls').findOne({
+            virtualNumber,
+            isActive: false,
+            dateEnded: null,
+            'from.phoneNumber': fromNumber
+        });
+        if (!phoneCall) {
+            console.log('cant find non-active call for virtual number ' + virtualNumber);
+            throw new Error('call not available to be received.');
+        }
+        await db.collection('phoneCalls').updateOne(
+            { virtualNumber },
+            { $set: { 
+                isActive: true,
+                dateStarted: new Date()
+            } }
+        );
+
+        const targetNumber = phoneCall.to.phoneNumber;
+        const ncco = [
+            {
+                action: 'connect',
+                eventUrl: ['https://26f7578f.ngrok.io/event'],
+                timeout: 45,
+                from: virtualNumber, // virtual number being called
+                endpoint: [
+                    {
+                        type: 'phone',
+                        number: targetNumber
+                    }
+                ]
+            }
+        ];
+        return ncco;
+     } catch(err) {
+         console.log('>>> CRITICAL ERROR - virtual number ' + virtualNumber + ' not found or not available, or other error: ', err);
+         throw err;
+     }
+ }
+
  app.get('/proxy-call', (req, res, next) => {
     console.log('NEXMO PROXY-CALL (/proxy-call): ', req.query);
-    const ncco = [
-        {
-            action: 'connect',
-            eventUrl: ['https://26f7578f.ngrok.io/event'],
-            timeout: 45,
-            from: req.query.to, // virtual number being called
-            endpoint: [
-                {
-                    type: 'phone',
-                    number: '13853157801'
-                }
-            ]
-        }
-    ];
-    res.json(ncco);
+    getDb(res, db => {
+        const virtualNumber = req.query.to;
+        const fromNumber = req.query.from;
+        getNexmoCallControlObject(virtualNumber, fromNumber, db).then(
+            ncco => {
+                res.json(ncco);
+            },
+            _ => {
+                res.status(500).send();
+            }
+        );
+    });
  });
 
- // todo: on hangup, update phoneCall - isActive=false, dateEnded=new Date()
+const endCall = async (virtualNumber, db) => {
+    try {  
+        await db.collection('phoneCalls').updateOne(
+            { virtualNumber },
+            { $set: {
+                isActive: false,
+                dateEnded: new Date()
+            } }
+        );
+        await db.collection('virtualNumbers').updateOne(
+            { phoneNumber: virtualNumber },
+            { $set: { available: true } }
+        );
+    } catch(err) {
+        console.log('ERROR ending call (NEXMO /event): ', err);
+    }
+}
+
  app.post('/event', (req, res, next) => {
     console.log('NEXMO CALL EVENT (/event): ', req.body);
-    res.status(204).end();
+    if (req.body && req.body.status === 'completed') {
+         // todo: on hangup, update phoneCall - isActive=false, dateEnded=new Date()
+        // then set virtualNumber isAvailable=true
+        getDb(res, db => {
+            const virtualNumber = req.body.to;
+            endCall(virtualNumber, db).then(
+                _ => {
+                    console.log('call ended, virtual# ' + virtualNumber);
+                    res.status(204).end();
+                },
+                _ => {
+                    res.status(204).end();
+                }
+            )
+        })
+    }
+    else {
+        res.status(204).end();
+    }
  })
 
  /** END NEXMO WEBHOOKS */
