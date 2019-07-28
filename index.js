@@ -70,6 +70,7 @@ const getDb = function(res, onConnect) {
                     // so you may efficiently sort by the field
                     cachedDb.collection('chatConnections').createIndex({ lastConnected: -1 });
                     cachedDb.collection('users').createIndex({ lastOnline: -1 });
+                    cachedDb.collection('users').createIndex({ username: 1 });
                     onConnect(cachedDb);
                 }
             });
@@ -129,7 +130,7 @@ app.post("/create-user", (req, res, next) => {
     getDb(res, (db) => {
         const username = req.body.username;
         const password = req.body.password;
-        db.collection('users').findOne({ name: { $eq: username } }, (err, existingPlayer) => {
+        db.collection('users').findOne({ username }, (err, existingPlayer) => {
             if (err) {
                 handleError('Error checking if player name ' + username + ' exists.', err, res);
             }
@@ -152,6 +153,7 @@ app.post("/create-user", (req, res, next) => {
                             hash: securePassword.hash,
                             salt: securePassword.salt,
                             lastOnline: new Date(),
+                            phoneCallsEnabled: true,
                             aboutMe: '',
                             coolPoints: 0,
                             badges: [],
@@ -227,9 +229,19 @@ const verifyToken = (token, res, onSuccess) => {
     });
 }
 
+const setUserConnected = async (username, db) => {
+    await db.collection('users').updateOne(
+        { username },
+        { $set: { lastOnline: new Date() } }
+    );
+}
+
 const authenticatedDb = (req, res, onSuccess) => {
     verifyToken(req.body.token, res, username => {
         getDb(res, db => {
+            setUserConnected(username, db).catch(err => {
+                console.log('ERROR updating user "' + username + '" last connected status: ', err);
+            });
             onSuccess(username, db);
         });
     })
@@ -242,115 +254,109 @@ const returnError = (res, errorMessage, statusCode) => {
 };
 
 app.post('/chat/connect', (req, res, next) => {
-    verifyToken(req.body.token, res, username => {
-        getDb(res, db => {
-            const otherUsername = req.body.username;
-            
-            db.collection('chatConnections').findOne({
-                $and: [
-                    { usernames: username },
-                    { usernames: otherUsername }
-                ]
-            }, (err, connection) => {
-                if (err) {
-                    returnError(res, 'Error finding channel with usernames ' + username + ' and ' + otherUsername);
-                }
-                else if (connection) {
-                    res.status(200).send({ channelId: connection.channelId });
-                }
-                else {
-                    const channelId = uuid();
-                    const connection = {
-                        channelId,
-                        usernames: [username, otherUsername],
-                        lastConnected: new Date()
-                    };
-                    const conversation = {
-                        channelId,
-                        lastMessageDate: null,
-                        lastMessagePreview: null,
-                        messages: []
-                    };
-                    
-                    db.collection('chatConnections').insertOne(connection, err => {
-                        if (err) {
-                            const errorMessage = 'Error inserting connection for users ' + username + ' and ' + otherUsername + ' with channelId ' + channelId + ', msg=' + err;
-                            returnError(res, errorMessage);
-                        }
-                        else {
-                            db.collection('conversations').insertOne(conversation, err => {
-                                if (err) {
-                                    const errorMessage = 'Error inserting connection for users ' + username + ' and ' + otherUsername + ' with channelId ' + channelId + ', msg=' + err;
-                                    returnError(res, errorMessage);
-                                }
-                                else {
-                                    res.status(200).send({ channelId });
-                                }
-                            })
-                        }
-                    });
-                }
-            });
+    authenticatedDb(req, res, (username, db) => {
+        const otherUsername = req.body.username;
+        
+        db.collection('chatConnections').findOne({
+            $and: [
+                { usernames: username },
+                { usernames: otherUsername }
+            ]
+        }, (err, connection) => {
+            if (err) {
+                returnError(res, 'Error finding channel with usernames ' + username + ' and ' + otherUsername);
+            }
+            else if (connection) {
+                res.status(200).send({ channelId: connection.channelId });
+            }
+            else {
+                const channelId = uuid();
+                const connection = {
+                    channelId,
+                    usernames: [username, otherUsername],
+                    lastConnected: new Date()
+                };
+                const conversation = {
+                    channelId,
+                    lastMessageDate: null,
+                    lastMessagePreview: null,
+                    messages: []
+                };
+                
+                db.collection('chatConnections').insertOne(connection, err => {
+                    if (err) {
+                        const errorMessage = 'Error inserting connection for users ' + username + ' and ' + otherUsername + ' with channelId ' + channelId + ', msg=' + err;
+                        returnError(res, errorMessage);
+                    }
+                    else {
+                        db.collection('conversations').insertOne(conversation, err => {
+                            if (err) {
+                                const errorMessage = 'Error inserting connection for users ' + username + ' and ' + otherUsername + ' with channelId ' + channelId + ', msg=' + err;
+                                returnError(res, errorMessage);
+                            }
+                            else {
+                                res.status(200).send({ channelId });
+                            }
+                        })
+                    }
+                });
+            }
         });
     });
 });
 
 app.post('/chat/messages', (req, res, next) => {
-    verifyToken(req.body.token, res, _ => {
-        getDb(res, db => {
-            const channelId = req.body.channelId;
+    authenticatedDb(req, res, (username, db) => {
+        const channelId = req.body.channelId;
 
-            db.collection('chatConnections').updateOne(
-                { channelId },
-                { $set: { lastConnected: new Date() } }
-            );
-            db.collection('conversations').findOne({ channelId }, (err, conversation) => {
-                if (err || !conversation) {
-                    const errorMessage = 'Error fetching conversation with channelId ' + channelId;
-                    returnError(res, errorMessage);
-                }
-                else {
-                    res.status(200).send(conversation.messages);
-                }
-            });
+        db.collection('chatConnections').updateOne(
+            { channelId },
+            { $set: { lastConnected: new Date() } }
+        );
+        db.collection('conversations').findOne({ channelId }, (err, conversation) => {
+            if (err || !conversation) {
+                const errorMessage = 'Error fetching conversation with channelId ' + channelId;
+                returnError(res, errorMessage);
+            }
+            else {
+                res.status(200).send(conversation.messages);
+            }
         });
     });
 });
 
 app.post('/chat/message', (req, res, next) => {
-    verifyToken(req.body.token, res, username => {
-        getDb(res, db => {
-            const channelId = req.body.channelId;
-            db.collection('chatConnections').findOne({ channelId }, (err, connection) => {
-                if (err || !connection) {
-                    const errorMessage = 'Error fetching chatConnection with channelId ' + channelId;
-                    returnError(res, errorMessage);
-                }
-                else if (!connection.usernames.includes(username)) {
-                    const errorMessage = 'User ' + username + ' is not authorized to participate in chat with channelId ' + channelId;
-                    returnError(res, errorMessage, 401);
-                }
-                else {
-                    const message = {
-                        sentBy: username,
-                        dateSent: new Date(),
-                        content: req.body.content
-                    };
-                    db.collection('conversations').updateOne(
-                        { channelId },
-                        { $push: { messages: message } }
-                    );
-                    db.collection('chatConnections').updateOne(
-                        { channelId },
-                        { $set: { lastConnected: new Date() } }
-                    );
+    authenticatedDb(req, res, (username, db) => {
+        const channelId = req.body.channelId;
+        db.collection('chatConnections').findOne({ channelId }, (err, connection) => {
+            if (err || !connection) {
+                const errorMessage = 'Error fetching chatConnection with channelId ' + channelId;
+                returnError(res, errorMessage);
+            }
+            else if (!connection.usernames.includes(username)) {
+                const errorMessage = 'User ' + username + ' is not authorized to participate in chat with channelId ' + channelId;
+                returnError(res, errorMessage, 401);
+            }
+            else {
+                const message = {
+                    sentBy: username,
+                    dateSent: new Date(),
+                    content: req.body.content
+                };
+                db.collection('conversations').updateOne(
+                    { channelId },
+                    { $push: { messages: message } }
+                );
+                db.collection('chatConnections').updateOne(
+                    { channelId },
+                    { $set: { lastConnected: new Date() } }
+                );
 
-                    pusher.trigger(channelId, 'message', message);
-                    res.status(204).send();
-                }
-            });
+                pusher.trigger(channelId, 'message', message);
+                res.status(204).send();
+            }
         });
-    })
+    });
 });
 
 const isUserOnline = (lastOnline) => {
@@ -635,7 +641,7 @@ const getVirtualNumber = async (db) => {
             return availableNumber;
         }
         else {
-            console.log('eh...');
+            console.log('>>> CRITICAL: Nick didnt implement logic to rent new numbers!');
             // todo: rent number, add to database, return
         }
     } catch(err) {
@@ -661,14 +667,14 @@ const requestVirtualNumber = (db) => {
                 reject(false);
             }
         }, 30000);
-    })
+    });
 }
 
 /** END: VIRTUAL NUMBERS QUEUE */
 
 const isUserAvailable = async (username, db) => {
     try {
-        const userInfo = await db.collection('phoneCalls')
+        const phoneCalls = await db.collection('phoneCalls')
             .find({
                 $or: [
                     { 'from.username': username },
@@ -677,7 +683,7 @@ const isUserAvailable = async (username, db) => {
             })
             .project({ isActive: 1 })
             .toArray();
-        const isAvailable = !(userInfo && userInfo.length > 0 && userInfo[0].isActive);
+        const isAvailable = !(phoneCalls && phoneCalls.length > 0 && phoneCalls[0].isActive);
         return isAvailable;
     } catch(err) {
         console.log('ERROR /call/initialize (isUserAvailable): ', err);
