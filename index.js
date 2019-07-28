@@ -203,7 +203,13 @@ app.post("/log-in", (req, res, next) => {
             }
             else {
                 const token = generateJwt(user.username);
-                res.status(200).send({ token });
+                const phoneNumberExists = user.phoneNumber && user.phoneNumber.length;
+                const phoneNumberVerified = user.isPhoneNumberConfirmed;
+                res.status(200).send({ 
+                    token,
+                    phoneNumberExists,
+                    phoneNumberVerified
+                });
             }
         });
     });
@@ -502,7 +508,7 @@ const sendVerificationCode = async (username, phoneNumber, db) => {
 
 const PhoneVerification = {
     INVALID_NUMBER: 'invalidNumber',
-    ALREADY_CONFIRMED: 'alreadyConfirmed',
+    NUMBER_IN_USE: 'numberInUse',
     VERIFICATION_SENT: 'verificationSent'
 };
 const verifyPhonenumber = async (username, phoneNumber, db) => {
@@ -511,12 +517,12 @@ const verifyPhonenumber = async (username, phoneNumber, db) => {
     try {
         isValidNumber = phoneNumber && phoneNumber.length >= 5; // for int'l support
         if (isValidNumber) {
-            const userInfo = await db.collection('users').findOne(
-                { username },
+            const existingUser = await db.collection('users').findOne(
+                { phoneNumber },
                 { verificationNumber: 1 }
             );
-            if (userInfo.verificationNumber) {
-                result = PhoneVerification.ALREADY_CONFIRMED;
+            if (existingUser && existingUser.verificationNumber) {
+                result = PhoneVerification.NUMBER_IN_USE;
             }
             else {
                 await sendVerificationCode(username, phoneNumber, db);
@@ -532,8 +538,6 @@ const verifyPhonenumber = async (username, phoneNumber, db) => {
         console.log('ERROR: /user/phone ', err);
         throw err;
     }
-
-    return isValidNumber;
 }
 
 app.post('/user/phone', (req, res, next) => {
@@ -544,10 +548,10 @@ app.post('/user/phone', (req, res, next) => {
                     res.status(204).send();
                 }
                 else if (result === PhoneVerification.INVALID_NUMBER) {
-                    res.status(400).send({errorMessage: 'Phone number is invalid.' });
+                    res.status(422).send({errorMessage: 'Phone number is invalid.' });
                 }
-                else if (result === PhoneVerification.ALREADY_CONFIRMED) {
-                    res.status(400).send({errorMessage: 'Confirmation already sent.' });
+                else if (result === PhoneVerification.NUMBER_IN_USE) {
+                    res.status(400).send({errorMessage: 'Phone number already in use.' });
                 }
                 else {
                     console.log('ERROR /user/phone: Nick, your logic is broken ;)');
@@ -595,6 +599,35 @@ app.post('/user/phone/verify', (req, res, next) => {
                 res.status(500).send();
             }
         );
+    });
+});
+
+const updateAboutMe = async (username, aboutMe, db) => {
+    try {
+        await db.collection('users').updateOne(
+            { username },
+            { $set: { aboutMe } }
+        );
+    } catch (err) {
+        console.log('ERROR /profile/about (username "' + username + '"): ', err);
+    }
+}
+
+app.post('/profile/about', (req, res, next) => {
+    authenticatedDb(req, res, (username, db) => {
+        if (req.body.aboutMe) {
+            updateAboutMe(username, req.body.aboutMe, db).then(
+                _ => {
+                    res.status(204).send();
+                },
+                _ => {
+                    res.status(500).send();
+                }
+            )
+        }
+        else {
+            res.status(400).send({ errorMessage: 'About me text is required.' });
+        }
     });
 });
 
