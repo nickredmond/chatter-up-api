@@ -176,13 +176,37 @@ app.post("/create-user", (req, res, next) => {
     });
 });
 
+const isUserPhoneConfirmed = async (username, db) => {
+    try {
+        const userInfo = await db.collection('users').findOne(
+            { username },
+            { isPhoneNumberConfirmed: 1 }
+        );
+        return userInfo.isPhoneNumberConfirmed;
+    } catch (err) {
+        console.log('ERROR /autenticate (validating phone number): ', err);
+        throw err;
+    }
+}
+
 // maybe use auth lambda gateway or something in future
 app.post("/authenticate", (req, res, next) => {
     // use in socket when joining games
     // todo: pass from both app and ws server to refresh exp of token (keep user logged in)
-    verifyToken(req.body.token, res, (username) => {
-        const refreshedToken = generateJwt(username);
-        res.status(200).send({ isAuthenticated: true, refreshedToken });
+    authenticatedDb(req, res, (username, db) => {
+        isUserPhoneConfirmed(username, db).then(
+            isPhoneNumberConfirmed => {
+                const refreshedToken = generateJwt(username);
+                res.status(200).send({ 
+                    isAuthenticated: true, 
+                    isPhoneNumberConfirmed,
+                    refreshedToken 
+                });
+            },
+            _ => {
+                res.status(500).send();
+            }
+        )
     });
 });
 
