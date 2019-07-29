@@ -230,14 +230,22 @@ app.post("/log-in", (req, res, next) => {
                 res.status(400).send({ playerExists: true, error: 'Password is invalid.' });
             }
             else {
-                const token = generateJwt(user.username);
-                const phoneNumberExists = user.phoneNumber && user.phoneNumber.length;
-                const phoneNumberVerified = user.isPhoneNumberConfirmed;
-                res.status(200).send({ 
-                    token,
-                    phoneNumberExists,
-                    phoneNumberVerified
-                });
+                setUserConnected(user.username, db).then(
+                    _ => {
+                        const token = generateJwt(user.username);
+                        const phoneNumberExists = user.phoneNumber && user.phoneNumber.length;
+                        const phoneNumberVerified = user.isPhoneNumberConfirmed;
+                        res.status(200).send({ 
+                            token,
+                            phoneNumberExists,
+                            phoneNumberVerified
+                        });
+                    },  
+                    err => {
+                        console.log('ERROR setting user lastOnline during /log-in', err);
+                        res.status(500).send();
+                    }
+                );
             }
         });
     });
