@@ -180,9 +180,12 @@ const isUserPhoneConfirmed = async (username, db) => {
     try {
         const userInfo = await db.collection('users').findOne(
             { username },
-            { isPhoneNumberConfirmed: 1 }
+            { isPhoneNumberConfirmed: 1, phoneNumber: 1 }
         );
-        return userInfo.isPhoneNumberConfirmed;
+        return {
+            isPhoneNumberConfirmed: userInfo.isPhoneNumberConfirmed,
+            phoneNumberExists: userInfo.phoneNumber && userInfo.phoneNumber.length > 0
+        };
     } catch (err) {
         console.log('ERROR /autenticate (validating phone number): ', err);
         throw err;
@@ -195,11 +198,12 @@ app.post("/authenticate", (req, res, next) => {
     // todo: pass from both app and ws server to refresh exp of token (keep user logged in)
     authenticatedDb(req, res, (username, db) => {
         isUserPhoneConfirmed(username, db).then(
-            isPhoneNumberConfirmed => {
+            result => {
                 const refreshedToken = generateJwt(username);
                 res.status(200).send({ 
                     isAuthenticated: true, 
-                    isPhoneNumberConfirmed,
+                    isPhoneNumberConfirmed: result.isPhoneNumberConfirmed,
+                    phoneNumberExists: result.phoneNumberExists,
                     refreshedToken 
                 });
             },
