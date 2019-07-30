@@ -233,7 +233,7 @@ app.post("/log-in", (req, res, next) => {
                 setUserConnected(user.username, db).then(
                     _ => {
                         const token = generateJwt(user.username);
-                        const phoneNumberExists = user.phoneNumber && user.phoneNumber.length;
+                        const phoneNumberExists = user.phoneNumber && user.phoneNumber.length > 0;
                         const phoneNumberVerified = user.isPhoneNumberConfirmed;
                         res.status(200).send({ 
                             token,
