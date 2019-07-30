@@ -1014,3 +1014,28 @@ const endCall = async (virtualNumber, db) => {
  })
 
  /** END NEXMO WEBHOOKS */
+
+const getRandomQuote = async (db) => {
+    try {
+        const results = await db.collection('quotes').aggregate([
+            { $sample: { size: 1 } }
+        ]).toArray();
+        return results[0];
+    } catch(err) {
+        console.log('ERROR /quote: ', err);
+        throw err;
+    }
+}
+
+app.post('/quote', (req, res, next) => {
+    authenticatedDb(req, res, (username, db) => {
+        getRandomQuote(db).then(
+            quote => {
+                res.status(200).send(quote);
+            },
+            _ => {
+                res.status(500).send();
+            }
+        );
+    });
+})
