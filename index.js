@@ -18,6 +18,7 @@ const PUSHER_CLUSTER = process.env.PUSHER_CLUSTER;
 const NEXMO_API_KEY = process.env.NEXMO_API_KEY;
 const NEXMO_SECRET = process.env.NEXMO_SECRET;  
 const NEXMO_SMS_NUMBER = process.env.NEXMO_SMS_NUMBER;
+const NEXMO_EVENT_URL = process.env.NEXMO_EVENT_URL;
 
 Date.prototype.addHours = function(h) {    
     this.setTime(this.getTime() + (h*60*60*1000)); 
@@ -900,7 +901,7 @@ app.post('/call/initialize', (req, res, next) => {
         const ncco = [
             {
                 action: 'connect',
-                eventUrl: ['https://26f7578f.ngrok.io/event'],
+                eventUrl: [NEXMO_EVENT_URL],
                 timeout: 45,
                 from: virtualNumber, // virtual number being called
                 endpoint: [
