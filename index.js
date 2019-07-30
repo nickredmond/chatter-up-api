@@ -719,6 +719,44 @@ app.post('/profile/about', (req, res, next) => {
     });
 });
 
+const setCallsEnabled = async (username, db, enabled) => {
+    try {
+        await db.collection('users').updateOne(
+            { username },
+            { $set: { phoneCallsEnabled: enabled } }
+        );
+    } catch(err) {
+        console.log('ERROR /profile/calls/[' + enabled + ']: ', err);
+        throw err;
+    }
+};
+
+app.post('/profile/calls/enable', (req, res, next) => {
+    authenticatedDb(req, res, (username, db) => {
+        setCallsEnabled(username, db, true).then(
+            _ => {
+                res.status(204).send();
+            },
+            _ => {
+                res.status(500).send();
+            }
+        )
+    });
+});
+
+app.post('/profile/calls/disable', (req, res, next) => {
+    authenticatedDb(req, res, (username, db) => {
+        setCallsEnabled(username, db, false).then(
+            _ => {
+                res.status(204).send();
+            },
+            _ => {
+                res.status(500).send();
+            }
+        )
+    });
+});
+
 /** BEGIN: VIRTUAL NUMBERS QUEUE */
 
 const VIRTUAL_NUMBERS_QUEUE = [];
