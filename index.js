@@ -518,6 +518,56 @@ app.post('/users', (req, res, next) => {
     })
 });
 
+const getUser = async (username, db) => {
+    try {
+        const user = await db.collection('users').findOne(
+            { username },
+            {
+                username: 1,
+                lastOnline: 1,
+                phoneCallsEnabled: 1,
+                isPhoneNumberConfirmed: 1,
+                aboutMe: 1,
+                coolPoints: 1,
+                badges: 1
+            }
+        );
+        const isOnline = isUserOnline(user.lastOnline);
+
+        return {
+            username: user.username,
+            about: user.aboutMe,
+            coolPoints: user.coolPoints,
+            badges: user.badges,
+            lastOnline: isOnline ? null : user.lastOnline,
+            isOnline,
+            canBeCalled: user.isPhoneNumberConfirmed && user.phoneCallsEnabled
+        };
+    } catch (err) {
+        console.log('ERROR /user: ', err);
+        throw err;
+    }
+}
+
+app.post('/user', (req, res, next) => {
+    authenticatedDb(req, res, (username, db) => {
+        const requestedUser = req.body.username;
+        if (requestedUser) {
+            getUser(requestedUser, db).then(
+                user => {
+                    res.status(200).send(user);
+                },
+                _ => {
+                    res.status(500).send();
+                }
+            );
+        }
+        else {
+            res.status(400).send({ errorMessage: 'Username is required.' });
+        }
+    });
+});
+
 const sendVerificationCode = async (username, phoneNumber, db) => {
     const verificationNumber = Math.round(Math.random() * 99000 + 10000);
     await db.collection('users').updateOne(
