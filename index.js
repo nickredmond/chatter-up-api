@@ -491,6 +491,7 @@ const getUsers = async (username, db) => {
         const users = usersData.map(user => {
             return {
                 isOnline: isUserOnline(user.lastOnline),
+                canBeCalled: user.isPhoneNumberConfirmed && user.phoneCallsEnabled,
                 username: user.username,
                 coolPoints: user.coolPoints,
                 badges: user.badges.length
