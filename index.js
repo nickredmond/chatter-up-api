@@ -148,13 +148,15 @@ app.post("/create-user", (req, res, next) => {
                     }
                     else {
                         const securePassword = generateSecurePassword(password);
+                        const socketReceiveId = uuid();
                         const user = {
                             username,
                             email: req.body.email,
                             hash: securePassword.hash,
                             salt: securePassword.salt,
+                            socketReceiveId, 
                             lastOnline: new Date(),
-                            phoneCallsEnabled: true,
+                            phoneCallsEnabled: false,
                             aboutMe: '',
                             coolPoints: 0,
                             badges: [],
@@ -166,7 +168,7 @@ app.post("/create-user", (req, res, next) => {
                             }
                             else {
                                 const token = generateJwt(username);
-                                const responseBody = { token };
+                                const responseBody = { token, socketReceiveId };
                                 res.status(200).send(responseBody);
                             }
                         });
@@ -239,7 +241,8 @@ app.post("/log-in", (req, res, next) => {
                         res.status(200).send({ 
                             token,
                             phoneNumberExists,
-                            phoneNumberVerified
+                            phoneNumberVerified,
+                            socketReceiveId: user.socketReceiveId
                         });
                     },  
                     err => {
