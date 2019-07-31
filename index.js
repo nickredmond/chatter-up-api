@@ -857,10 +857,11 @@ const initializeCall = async (fromUsername, toUsername, db) => {
     try {
         const userInfos = await db.collection('users')
             .find({ username: { $in: [fromUsername, toUsername] } })
-            .project({ username: 1, phoneNumber: 1 })
+            .project({ username: 1, phoneNumber: 1, socketReceiveId: 1 })
             .toArray();
         const fromPhone = userInfos.filter(user => user.username === fromUsername)[0].phoneNumber;
-        const toPhone = userInfos.filter(user => user.username === toUsername)[0].phoneNumber;
+        const toUser = userInfos.filter(user => user.username === toUsername)[0];
+        const toPhone = toUser.phoneNumber;
         const virtualNumber = await requestVirtualNumber(db);
 
         await db.collection('phoneCalls').insertOne({
@@ -874,6 +875,11 @@ const initializeCall = async (fromUsername, toUsername, db) => {
             },
             virtualNumber,
             isActive: false
+        });
+
+        pusher.trigger(toUser.socketReceiveId, 'incoming-call', {
+            phoneNumber: virtualNumber,
+            username: fromUsername
         });
 
         return virtualNumber;
