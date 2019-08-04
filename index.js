@@ -468,9 +468,10 @@ const getMessagesList = async (username, db) => {
         }).toArray();
 
         let conversations = [];
+        let unblockedConversations = [];
         if (connections && connections.length > 0) {
             const channelIds = [];
-            const usernames = [];
+            const usernames = [username];
             const usernamesByChannel = {};
             connections.forEach(connection => {
                 channelIds.push(connection.channelId);
@@ -485,19 +486,24 @@ const getMessagesList = async (username, db) => {
                 .toArray();
             const users = await db.collection('users')
                 .find({ username: { $in: usernames } })
-                .project({ username: 1, lastOnline: 1 })
+                .project({ username: 1, lastOnline: 1, blockedUsernames: 1 })
                 .toArray();
+            const user = users.filter(user => user.username === username)[0];
             
             conversations.forEach(conversation => {
                 const otherUsername = usernamesByChannel[conversation.channelId];
-                const lastOnline = users.filter(user => user.username === otherUsername)[0].lastOnline;
-
-                conversation.username = otherUsername;
-                conversation.isOnline = isUserOnline(lastOnline);
+                const otherUser = users.filter(user => user.username === otherUsername)[0];
+                
+                if (!user.blockedUsernames.includes(otherUsername) && !otherUser.blockedUsernames.includes(username)) {
+                    const lastOnline = otherUser.lastOnline;
+                    conversation.username = otherUsername;
+                    conversation.isOnline = isUserOnline(lastOnline);
+                    unblockedConversations.push(conversation);
+                }
             });
         }
 
-        return conversations;
+        return unblockedConversations;
     } catch(err) {
         console.log('ERROR /messages/list: ', err);
         throw err;
