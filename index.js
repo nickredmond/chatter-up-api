@@ -469,10 +469,21 @@ app.post('/messages/list', (req, res, next) => {
 
 const getUsers = async (username, db) => {
     try {
+        const callableUsers = await db.collection('users')
+            .find({
+                $and: [
+                    { isPhoneNumberConfirmed: true },
+                    { phoneCallsEnabled: true },
+                    { username: { $ne: username }}
+                ]
+            })
+            .limit(10)
+            .toArray();
+
         const connections = await db.collection('chatConnections')
             .find({ usernames: username })
             .sort({ lastConnected: -1 })
-            .limit(5)
+            .limit(10)
             .toArray();
         const recentUsernames = connections.map(connection => {
             const otherUsername = connection.usernames.filter(name => {
@@ -484,25 +495,32 @@ const getUsers = async (username, db) => {
             .find({ username: { $in: recentUsernames } })
             .toArray();
 
-        const excludedUsernames = recentUsernames.concat([username]);
         const recentlyOnlineUsers = await db.collection('users')
-            .find({ username: { $nin: excludedUsernames } })
+            .find({ username: { $ne: username } })
             .sort({ lastOnline: -1 })
-            .limit(5)
+            .limit(10)
             .toArray();
         
-        const usersData = recentlyConnectedUsers.concat(recentlyOnlineUsers);
-        const users = usersData.map(user => {
-            return {
-                isOnline: isUserOnline(user.lastOnline),
-                canBeCalled: user.isPhoneNumberConfirmed && user.phoneCallsEnabled,
-                username: user.username,
-                coolPoints: user.coolPoints,
-                badges: user.badges.length
-            };
-        });
+        let usersData = recentlyOnlineUsers.concat(callableUsers);
+        usersData = usersData.concat(recentlyConnectedUsers);
+        const distinctUsers = [];
+        const distinctUsernames = [];
+        for (var i = 0; i < usersData.length; i++) {
+            const userData = usersData[i];
+            if (!distinctUsernames.includes(userData.username)) {
+                distinctUsernames.push(userData.username);
+                const user = {
+                    isOnline: isUserOnline(userData.lastOnline),
+                    canBeCalled: userData.isPhoneNumberConfirmed && userData.phoneCallsEnabled,
+                    username: userData.username,
+                    coolPoints: userData.coolPoints,
+                    badges: userData.badges.length
+                };
+                distinctUsers.push(user);
+            }
+        }
         
-        return users;
+        return distinctUsers;
     } catch(err) {
         console.log('ERROR /users: ', err);
         throw err;
