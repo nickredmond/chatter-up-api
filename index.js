@@ -1065,4 +1065,69 @@ app.post('/quote', (req, res, next) => {
             }
         );
     });
-})
+});
+
+const isValidReport = (req) => {
+    return req.body && req.body.username && req.body.category && req.body.description;
+}
+
+reportUser = async (username, requestBody, db) => {
+    try {  
+        const report = {
+            submittedBy: username,
+            usernameReported: requestBody.username, 
+            category: requestBody.category,
+            description: requestBody.description
+        };
+        await db.collection('reports').insertOne(report);
+    } catch(err) {
+        console.log('ERROR /report: ', err);
+        throw err;
+    }
+}
+
+app.post('/report', (req, res, next) => {
+    authenticatedDb(req, res, (username, db) => {
+        if (isValidReport(req)) {
+            reportUser(username, req.body, db).then(
+                _ => {
+                    res.status(204).send();
+                },
+                _ => {
+                    res.status(500).send();
+                }
+            )
+        }
+        else {
+            res.status(400).send({ errorMessage: 'Invalid report.' });
+        }
+    })
+});
+
+const usernameExists = async (username, db) => {
+    try {   
+        const user = await db.collection('users').findOne({ username });
+        return !!user;
+    } catch(err) {
+        console.log('ERROR /username/exists: ', err);
+        throw err;
+    }
+}
+
+app.post('/username/exists', (req, res, next) => {
+    authenticatedDb(req, res, (username, db) => {
+        if (req.body && req.body.username) {
+            usernameExists(req.body.username, db).then(
+                exists => {
+                    res.status(200).send({ exists });
+                },
+                _ => {
+                    res.status(500).send();
+                }
+            );
+        }   
+        else {
+            res.status(400).send({ errorMessage: 'Username is required.' });
+        }
+    });
+});
