@@ -160,7 +160,8 @@ app.post("/create-user", (req, res, next) => {
                             aboutMe: '',
                             coolPoints: 0,
                             badges: [],
-                            messageLists: []
+                            messageLists: [],
+                            blockedUsernames: []
                         };
                         db.collection('users').insertOne(user, (err) => {
                             if (err) {
@@ -371,6 +372,50 @@ app.post('/chat/messages', (req, res, next) => {
     });
 });
 
+const allowedToContactUser = async (username, otherUsername, db) => {
+    try {
+        const users = await db.collection('users').find({
+            username: { $in: [username, otherUsername] }
+        }).toArray();
+        
+        return users.filter(user => {
+            return (user.username === username && user.blockedUsernames.includes(otherUsername)) ||
+            (user.username === otherUsername && user.blockedUsernames.includes(username));
+        }).length === 0;
+    } catch(err) {
+        console.log('ERROR /chat/message -- allowedToContactUser(): ', err);
+    }
+}
+
+const sendMessage = async (username, channelId, content, db) => {
+    try {
+        const message = {
+            sentBy: username,
+            dateSent: new Date(),
+            content
+        };
+        await db.collection('conversations').updateOne(
+            { channelId },
+            { 
+                $push: { messages: message },
+                $set: {
+                    lastMessageDate: new Date(), 
+                    lastMessagePreview: message.content.substring(0, 30) 
+                } 
+            }
+        );
+        await db.collection('chatConnections').updateOne(
+            { channelId },
+            { $set: { lastConnected: new Date() } }
+        );
+
+        pusher.trigger(channelId, 'message', message);
+    } catch(err) {
+        console.log('ERROR /chat/message -- sendMessage(): ', err);
+        throw err;
+    }
+}
+
 app.post('/chat/message', (req, res, next) => {
     authenticatedDb(req, res, (username, db) => {
         const channelId = req.body.channelId;
@@ -381,25 +426,30 @@ app.post('/chat/message', (req, res, next) => {
             }
             else if (!connection.usernames.includes(username)) {
                 const errorMessage = 'User ' + username + ' is not authorized to participate in chat with channelId ' + channelId;
-                returnError(res, errorMessage, 401);
+                returnError(res, errorMessage, 403);
             }
             else {
-                const message = {
-                    sentBy: username,
-                    dateSent: new Date(),
-                    content: req.body.content
-                };
-                db.collection('conversations').updateOne(
-                    { channelId },
-                    { $push: { messages: message } }
+                const otherUsername = connection.usernames.filter(name => name !== username)[0];
+                allowedToContactUser(username, otherUsername, db).then(
+                    allowed => {
+                        if (allowed) {
+                            sendMessage(username, channelId, req.body.content, db).then(
+                                _ => {
+                                    res.status(204).send();
+                                },
+                                _ => {
+                                    res.status(500).send();
+                                }
+                            )
+                        }
+                        else {
+                            res.status(403).send({ errorMessage: 'You are not allowed to contact this user.' });
+                        }
+                    },
+                    _ => {
+                        res.status(500).send();
+                    }
                 );
-                db.collection('chatConnections').updateOne(
-                    { channelId },
-                    { $set: { lastConnected: new Date() } }
-                );
-
-                pusher.trigger(channelId, 'message', message);
-                res.status(204).send();
             }
         });
     });
@@ -469,6 +519,12 @@ app.post('/messages/list', (req, res, next) => {
 
 const getUsers = async (username, db) => {
     try {
+        const me = (await db.collection('users')
+            .find({ username })
+            .project({ blockedUsernames: 1 })
+            .toArray())[0];
+        const blockedUsernames = me.blockedUsernames;
+
         const callableUsers = await db.collection('users')
             .find({
                 $and: [
@@ -507,7 +563,10 @@ const getUsers = async (username, db) => {
         const distinctUsernames = [];
         for (var i = 0; i < usersData.length; i++) {
             const userData = usersData[i];
-            if (!distinctUsernames.includes(userData.username)) {
+            if (!distinctUsernames.includes(userData.username) && 
+                !blockedUsernames.includes(userData.username) && 
+                !userData.blockedUsernames.includes(username)) {
+
                 distinctUsernames.push(userData.username);
                 const user = {
                     isOnline: isUserOnline(userData.lastOnline),
@@ -871,36 +930,48 @@ const isUserAvailable = async (username, db) => {
     }
 }
 
-const initializeCall = async (fromUsername, toUsername, db) => {
+const initializeCall = async (fromUsername, toUsername, db, userBlocked) => {
     try {
         const userInfos = await db.collection('users')
             .find({ username: { $in: [fromUsername, toUsername] } })
-            .project({ username: 1, phoneNumber: 1, socketReceiveId: 1 })
+            .project({ 
+                username: 1, 
+                phoneNumber: 1, 
+                socketReceiveId: 1,
+                blockedUsernames: 1
+            })
             .toArray();
-        const fromPhone = userInfos.filter(user => user.username === fromUsername)[0].phoneNumber;
+        const fromUser = userInfos.filter(user => user.username === fromUsername)[0];
         const toUser = userInfos.filter(user => user.username === toUsername)[0];
-        const toPhone = toUser.phoneNumber;
-        const virtualNumber = await requestVirtualNumber(db);
+        
+        if (fromUser.blockedUsernames.includes(toUser.username) ||
+            toUser.blockedUsernames.includes(fromUser.username)) {
 
-        await db.collection('phoneCalls').insertOne({
-            from: {
-                username: fromUsername,
-                phoneNumber: fromPhone
-            },
-            to: {
-                username: toUsername,
-                phoneNumber: toPhone
-            },
-            virtualNumber,
-            isActive: false
-        });
+            userBlocked();
+        }
+        else {
+            const virtualNumber = await requestVirtualNumber(db);
 
-        pusher.trigger(toUser.socketReceiveId, 'incoming-call', {
-            phoneNumber: virtualNumber,
-            username: fromUsername
-        });
+            await db.collection('phoneCalls').insertOne({
+                from: {
+                    username: fromUsername,
+                    phoneNumber: fromUser.phoneNumber
+                },
+                to: {
+                    username: toUsername,
+                    phoneNumber: toUser.phoneNumber
+                },
+                virtualNumber,
+                isActive: false
+            });
 
-        return virtualNumber;
+            pusher.trigger(toUser.socketReceiveId, 'incoming-call', {
+                phoneNumber: virtualNumber,
+                username: fromUsername
+            });
+
+            return virtualNumber;
+        }
     } catch(err) {
         console.log('ERROR /call/initialize (initializeCall): ', err);
         throw err;
@@ -917,7 +988,10 @@ app.post('/call/initialize', (req, res, next) => {
             isUserAvailable(toUser, db).then(
                 available => {
                     if (available) {
-                        initializeCall(username, toUser, db).then(
+                        userBlocked = () => {
+                            res.status(403).send({ errorMessage: 'You are not allowed to call this user.' });
+                        };
+                        initializeCall(username, toUser, db, userBlocked).then(
                             virtualNumber => {
                                 res.status(200).send({ virtualNumber });
                             },
@@ -1067,6 +1141,8 @@ app.post('/quote', (req, res, next) => {
     });
 });
 
+/** BEGIN: SUPPORT ENDPOINTS */
+
 const isValidReport = (req) => {
     return req.body && req.body.username && req.body.category && req.body.description;
 }
@@ -1131,3 +1207,35 @@ app.post('/username/exists', (req, res, next) => {
         }
     });
 });
+
+const blockUser = async (username, blockedUsername, db) => {
+    try {
+        await db.collection('users').updateOne(
+            { username },
+            { $push: { blockedUsernames: blockedUsername } }
+        );
+    } catch(err) {
+        console.log('ERROR /username/block: ', err);
+        throw err;
+    }
+}
+
+app.post('/username/block', (req, res, next) => {
+    authenticatedDb(req, res, (username, db) => {
+        if (req.body && req.body.username) {
+            blockUser(username, req.body.username, db).then(
+                _ => {
+                    res.status(204).send();
+                },
+                _ => {
+                    res.status(500).send();
+                }
+            )
+        }
+        else {
+            res.status(400).send({ errorMessage: 'Username is required.' });
+        }
+    });
+})
+
+/** END: SUPPORT ENDPOINTS */
