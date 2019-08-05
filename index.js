@@ -129,54 +129,59 @@ const generateJwt = (username) => {
 
 app.post("/create-user", (req, res, next) => {
     getDb(res, (db) => {
-        const username = req.body.username;
+        const username = req.body.username ? req.body.username.toLowerCase() : null;
         const password = req.body.password;
-        db.collection('users').findOne({ username }, (err, existingPlayer) => {
-            if (err) {
-                handleError('Error checking if player name ' + username + ' exists.', err, res);
-            }
-            else if (existingPlayer) {
-                res.status(400).send({ playerAlreadyExists: true });
-            }
-            else {
-                db.collection('users').findOne({ email: { $eq: req.body.email } }, (err, existingPlayer) => {
-                    if (err) {
-                        handleError('Error checking if username ' + username + ' exists.', err, res);
-                    }
-                    else if (existingPlayer) {
-                        res.status(400).send({ isEmailTaken: true });
-                    }
-                    else {
-                        const securePassword = generateSecurePassword(password);
-                        const socketReceiveId = uuid();
-                        const user = {
-                            username,
-                            email: req.body.email,
-                            hash: securePassword.hash,
-                            salt: securePassword.salt,
-                            socketReceiveId, 
-                            lastOnline: new Date(),
-                            phoneCallsEnabled: false,
-                            aboutMe: '',
-                            coolPoints: 0,
-                            badges: [],
-                            messageLists: [],
-                            blockedUsernames: []
-                        };
-                        db.collection('users').insertOne(user, (err) => {
-                            if (err) {
-                                handleError('Error creating new user.', err, res);
-                            }
-                            else {
-                                const token = generateJwt(username);
-                                const responseBody = { token, socketReceiveId };
-                                res.status(200).send(responseBody);
-                            }
-                        });
-                    }
-                });
-            }
-        });
+        if (username && password) {
+            db.collection('users').findOne({ username }, (err, existingPlayer) => {
+                if (err) {
+                    handleError('Error checking if player name ' + username + ' exists.', err, res);
+                }
+                else if (existingPlayer) {
+                    res.status(400).send({ playerAlreadyExists: true });
+                }
+                else {
+                    db.collection('users').findOne({ email: { $eq: req.body.email } }, (err, existingPlayer) => {
+                        if (err) {
+                            handleError('Error checking if username ' + username + ' exists.', err, res);
+                        }
+                        else if (existingPlayer) {
+                            res.status(400).send({ isEmailTaken: true });
+                        }
+                        else {
+                            const securePassword = generateSecurePassword(password);
+                            const socketReceiveId = uuid();
+                            const user = {
+                                username,
+                                email: req.body.email,
+                                hash: securePassword.hash,
+                                salt: securePassword.salt,
+                                socketReceiveId, 
+                                lastOnline: new Date(),
+                                phoneCallsEnabled: false,
+                                aboutMe: '',
+                                coolPoints: 0,
+                                badges: [],
+                                messageLists: [],
+                                blockedUsernames: []
+                            };
+                            db.collection('users').insertOne(user, (err) => {
+                                if (err) {
+                                    handleError('Error creating new user.', err, res);
+                                }
+                                else {
+                                    const token = generateJwt(username);
+                                    const responseBody = { token, socketReceiveId };
+                                    res.status(200).send(responseBody);
+                                }
+                            });
+                        }
+                    });
+                }
+            });
+        }
+        else {
+            res.status(400).send({ errorMessage: 'Username and password are required.' });
+        }
     });
 });
 
@@ -219,41 +224,46 @@ app.post("/authenticate", (req, res, next) => {
 });
 
 app.post("/log-in", (req, res, next) => {
-    const username = req.body.username;
+    const username = req.body.username ? req.body.username.toLowerCase() : null;
     const password = req.body.password;
 
-    getDb(res, (db) => {
-        db.collection('users').findOne({ username: { $eq: username } }, (err, user) => {
-            if (err) {
-                handleError('Error occurred while logging in.', err, res);
-            }
-            else if (!user) {
-                res.status(400).send({ playerExists: false, error: 'Could not find player with that username.' });
-            }
-            else if (!isPasswordValid(password, user.salt, user.hash)) {
-                res.status(400).send({ playerExists: true, error: 'Password is invalid.' });
-            }
-            else {
-                setUserConnected(user.username, db).then(
-                    _ => {
-                        const token = generateJwt(user.username);
-                        const phoneNumberExists = user.phoneNumber && user.phoneNumber.length > 0;
-                        const phoneNumberVerified = user.isPhoneNumberConfirmed;
-                        res.status(200).send({ 
-                            token,
-                            phoneNumberExists,
-                            phoneNumberVerified,
-                            socketReceiveId: user.socketReceiveId
-                        });
-                    },  
-                    err => {
-                        console.log('ERROR setting user lastOnline during /log-in', err);
-                        res.status(500).send();
-                    }
-                );
-            }
+    if (username && password) {
+        getDb(res, (db) => {
+            db.collection('users').findOne({ username: { $eq: username } }, (err, user) => {
+                if (err) {
+                    handleError('Error occurred while logging in.', err, res);
+                }
+                else if (!user) {
+                    res.status(400).send({ playerExists: false, error: 'Could not find player with that username.' });
+                }
+                else if (!isPasswordValid(password, user.salt, user.hash)) {
+                    res.status(400).send({ playerExists: true, error: 'Password is invalid.' });
+                }
+                else {
+                    setUserConnected(user.username, db).then(
+                        _ => {
+                            const token = generateJwt(user.username);
+                            const phoneNumberExists = user.phoneNumber && user.phoneNumber.length > 0;
+                            const phoneNumberVerified = user.isPhoneNumberConfirmed;
+                            res.status(200).send({ 
+                                token,
+                                phoneNumberExists,
+                                phoneNumberVerified,
+                                socketReceiveId: user.socketReceiveId
+                            });
+                        },  
+                        err => {
+                            console.log('ERROR setting user lastOnline during /log-in', err);
+                            res.status(500).send();
+                        }
+                    );
+                }
+            });
         });
-    });
+    }
+    else {
+        res.status(400).send({ errorMessage: 'Username and password are required.' });
+    }
 });
 
 const isTokenExpired = (expiry) => {
@@ -1199,7 +1209,8 @@ const usernameExists = async (username, db) => {
 app.post('/username/exists', (req, res, next) => {
     authenticatedDb(req, res, (username, db) => {
         if (req.body && req.body.username) {
-            usernameExists(req.body.username, db).then(
+            const requestedUsername = req.body.username.toLowerCase();
+            usernameExists(requestedUsername, db).then(
                 exists => {
                     res.status(200).send({ exists });
                 },
@@ -1229,7 +1240,8 @@ const blockUser = async (username, blockedUsername, db) => {
 app.post('/username/block', (req, res, next) => {
     authenticatedDb(req, res, (username, db) => {
         if (req.body && req.body.username) {
-            blockUser(username, req.body.username, db).then(
+            const blockedUsername = req.body.username.toLowerCase();
+            blockUser(username, blockedUsername, db).then(
                 _ => {
                     res.status(204).send();
                 },
