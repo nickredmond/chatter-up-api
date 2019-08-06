@@ -73,6 +73,8 @@ const getDb = function(res, onConnect) {
                     cachedDb.collection('users').createIndex({ lastOnline: -1 });
                     cachedDb.collection('users').createIndex({ username: 1 });
                     cachedDb.collection('phoneCalls').createIndex({ virtualNumber: 1 });
+                    cachedDb.collection('conversations').createIndex({ channelId: 1 });
+                    cachedDb.collection('conversations').createIndex({ lastMessagePreview: 1 });
                     onConnect(cachedDb);
                 }
             });
@@ -494,7 +496,7 @@ const getMessagesList = async (username, db) => {
             conversations = await db.collection('conversations')
                 .find({ 
                     channelId: { $in: channelIds },  
-                    lastMessagePreview: { $exists: true }
+                    lastMessagePreview: { $ne: null }
                 })
                 .project({ channelId: 1, lastMessageDate: 1, lastMessagePreview: 1 })
                 .toArray();
