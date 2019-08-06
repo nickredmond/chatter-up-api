@@ -75,6 +75,7 @@ const getDb = function(res, onConnect) {
                     cachedDb.collection('phoneCalls').createIndex({ virtualNumber: 1 });
                     cachedDb.collection('conversations').createIndex({ channelId: 1 });
                     cachedDb.collection('conversations').createIndex({ lastMessagePreview: 1 });
+                    cachedDb.collection('supportRequests').createIndex({ dateCreated: -1 });
                     onConnect(cachedDb);
                 }
             });
@@ -1277,6 +1278,38 @@ app.post('/username/block', (req, res, next) => {
             res.status(400).send({ errorMessage: 'Username is required.' });
         }
     });
+});
+
+const saveContactRequest = async (username, description, db) => {
+    try {
+        await db.collection('supportRequests').insertOne({
+            username,
+            description,
+            dateCreated: new Date()
+        });
+    } catch(err) {
+        console.log('ERROR /contact: ', err);
+        throw err;
+    }
+}
+
+app.post('/contact', (req, res, next) => {
+    authenticatedDb(req, res, (username, db) => {
+        const description = req.body ? req.body.description : null;
+        if (description) {
+            saveContactRequest(username, description, db).then(
+                _ => {
+                    res.status(204).send();
+                },
+                _ => {
+                    res.status(500).send();
+                }
+            )
+        }
+        else {
+            res.status(400).send({ errorMessage: 'Description is required.' });
+        }
+    });
 })
 
 /** END: SUPPORT ENDPOINTS */
@@ -1339,13 +1372,6 @@ app.post('/call/:callId/rate', (req, res, next) => {
                 res.status(500).send();
             }
         );
-        // check participants of call w/ ID
-        //  if not caller then return 403 'cannot rate this call'
-        // check isRated flag of call w/ given ID
-        //  if true then return 400 'call is already rated'
-        // else, 
-        //  add coolPoints to phoneCall.to if >ok
         //  BADGES (todo): increment numberOfRatings of caller, this can go toward badge, award badge if earned
-
     });
 });
