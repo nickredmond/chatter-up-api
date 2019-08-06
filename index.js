@@ -492,7 +492,10 @@ const getMessagesList = async (username, db) => {
             });
 
             conversations = await db.collection('conversations')
-                .find({ channelId: { $in: channelIds } })
+                .find({ 
+                    channelId: { $in: channelIds },  
+                    lastMessagePreview: { $exists: true }
+                })
                 .project({ channelId: 1, lastMessageDate: 1, lastMessagePreview: 1 })
                 .toArray();
             const users = await db.collection('users')
