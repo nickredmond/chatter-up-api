@@ -72,6 +72,7 @@ const getDb = function(res, onConnect) {
                     cachedDb.collection('chatConnections').createIndex({ lastConnected: -1 });
                     cachedDb.collection('users').createIndex({ lastOnline: -1 });
                     cachedDb.collection('users').createIndex({ username: 1 });
+                    cachedDb.collection('phoneCalls').createIndex({ virtualNumber: 1 });
                     onConnect(cachedDb);
                 }
             });
@@ -1092,17 +1093,31 @@ app.post('/call/initialize', (req, res, next) => {
 
 const endCall = async (virtualNumber, db) => {
     try {  
-        await db.collection('phoneCalls').updateOne(
+        const phoneCall = await db.collection('phoneCalls').findOne(
             { virtualNumber, dateEnded: null },
-            { $set: {
-                isActive: false,
-                dateEnded: new Date()
-            } }
+            { from: 1, dateStarted: 1 }
         );
-        await db.collection('virtualNumbers').updateOne(
-            { phoneNumber: virtualNumber },
-            { $set: { available: true } }
-        );
+        if (phoneCall) {
+            const fromUser = db.collection('users').findOne(
+                { username: phoneCall.from.username },
+                { socketReceiveId: 1 }
+            );
+            pusher.trigger(fromUser.socketReceiveId, 'call-end', {
+                dateStarted: phoneCall.dateStarted
+            });
+
+            await db.collection('phoneCalls').updateOne(
+                { virtualNumber, dateEnded: null },
+                { $set: {
+                    isActive: false,
+                    dateEnded: new Date()
+                } }
+            );
+            await db.collection('virtualNumbers').updateOne(
+                { phoneNumber: virtualNumber },
+                { $set: { available: true } }
+            );
+        }
     } catch(err) {
         console.log('ERROR ending call (NEXMO /event): ', err);
     }
