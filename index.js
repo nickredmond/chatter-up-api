@@ -979,7 +979,8 @@ const initializeCall = async (fromUsername, toUsername, db, userBlocked) => {
                     phoneNumber: toUser.phoneNumber
                 },
                 virtualNumber,
-                isActive: false
+                isActive: false,
+                ratings: []
             });
 
             pusher.trigger(toUser.socketReceiveId, 'incoming-call', {
@@ -1046,12 +1047,20 @@ app.post('/call/initialize', (req, res, next) => {
             throw new Error('call not available to be received.');
         }
         await db.collection('phoneCalls').updateOne(
-            { virtualNumber },
+            { _id: phoneCall._id },
             { $set: { 
                 isActive: true,
                 dateStarted: new Date()
             } }
         );
+
+        const fromUser = await db.collection('users').findOne(
+            { username: phoneCall.from.username },
+            { socketReceiveId: 1 }
+        );
+        pusher.trigger(fromUser.socketReceiveId, 'call-begin', {
+            callId: phoneCall._id.toString()
+        });
 
         const targetNumber = phoneCall.to.phoneNumber;
         const ncco = [
@@ -1094,20 +1103,15 @@ app.post('/call/initialize', (req, res, next) => {
 const endCall = async (virtualNumber, db) => {
     try {  
         const phoneCall = await db.collection('phoneCalls').findOne(
-            { virtualNumber, dateEnded: null },
-            { from: 1, dateStarted: 1 }
+            { 
+                virtualNumber, 
+                isActive: true
+            },
+            { from: 1 }
         );
         if (phoneCall) {
-            const fromUser = db.collection('users').findOne(
-                { username: phoneCall.from.username },
-                { socketReceiveId: 1 }
-            );
-            pusher.trigger(fromUser.socketReceiveId, 'call-end', {
-                dateStarted: phoneCall.dateStarted
-            });
-
             await db.collection('phoneCalls').updateOne(
-                { virtualNumber, dateEnded: null },
+                { _id: phoneCall._id },
                 { $set: {
                     isActive: false,
                     dateEnded: new Date()
@@ -1272,3 +1276,72 @@ app.post('/username/block', (req, res, next) => {
 })
 
 /** END: SUPPORT ENDPOINTS */
+
+const COOLPOINTS_BY_RATING = {
+    'ok': 0,
+    'good': 1,
+    'great': 5
+};
+const saveCallRating = async (username, req, res, db) => {
+    try {
+        const ratingText = req.body.rating; 
+        if (ratingText) {
+            const callId = new mongodb.ObjectId(req.params.callId);
+            const phoneCall = await db.collection('phoneCalls').findOne({ _id: callId });
+            const callParticipants = [phoneCall.from.username, phoneCall.to.username];
+            const hasRated = phoneCall.ratings.filter(rating => rating.usernameRated !== username).length > 0;
+
+            if (hasRated) {
+                res.status(400).send({ errorMessage: 'You have already rated this call.' });
+            }
+            else if (callParticipants.includes(username)) {
+                const usernameRated = (username === phoneCall.from.username) ? phoneCall.to.username : phoneCall.from.username;
+                const rating = {
+                    usernameRated,
+                    value: ratingText
+                };
+                await db.collection('phoneCalls').updateOne(
+                    { _id: callId },
+                    { $push: { ratings: rating } }
+                );
+
+                const coolPointsEarned = COOLPOINTS_BY_RATING[ratingText] || 0;
+                if (coolPointsEarned > 0) {
+                    await db.collection('users').updateOne(
+                        { username: usernameRated },
+                        { $inc: { coolPoints: coolPointsEarned } }
+                    );
+                }
+
+                res.status(204).send();
+            }
+            else {
+                res.status(403).send({ errorMessage: 'You are not permitted to rate this call.' });
+            }
+        }
+        else {
+            res.status(400).send({ errorMessage: 'Rating is required.'});
+        }
+    } catch(err) {
+        console.log('ERROR /call/:callId/rate ', err);
+        throw err;
+    }
+}
+
+app.post('/call/:callId/rate', (req, res, next) => {
+    authenticatedDb(req, res, (username, db) => {
+        saveCallRating(username, req, res, db).catch(
+            _ => {
+                res.status(500).send();
+            }
+        );
+        // check participants of call w/ ID
+        //  if not caller then return 403 'cannot rate this call'
+        // check isRated flag of call w/ given ID
+        //  if true then return 400 'call is already rated'
+        // else, 
+        //  add coolPoints to phoneCall.to if >ok
+        //  BADGES (todo): increment numberOfRatings of caller, this can go toward badge, award badge if earned
+
+    });
+});
