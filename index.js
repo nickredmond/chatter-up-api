@@ -708,10 +708,9 @@ const verifyPhonenumber = async (username, phoneNumber, db) => {
         isValidNumber = phoneNumber && phoneNumber.length >= 5; // for int'l support
         if (isValidNumber) {
             const existingUser = await db.collection('users').findOne(
-                { phoneNumber },
-                { verificationNumber: 1 }
+                { phoneNumber }
             );
-            if (existingUser && existingUser.verificationNumber) {
+            if (existingUser) {
                 result = PhoneVerification.NUMBER_IN_USE;
             }
             else {
