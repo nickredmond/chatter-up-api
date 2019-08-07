@@ -76,6 +76,7 @@ const getDb = function(res, onConnect) {
                     cachedDb.collection('conversations').createIndex({ channelId: 1 });
                     cachedDb.collection('conversations').createIndex({ lastMessagePreview: 1 });
                     cachedDb.collection('supportRequests').createIndex({ dateCreated: -1 });
+                    cachedDb.collection('virtualNumbers').createIndex({ phoneNumber: 1 });
                     onConnect(cachedDb);
                 }
             });
@@ -869,11 +870,12 @@ const beginListenVirtualNumbersQueue = () => {
         // this is spam
         // console.log('>>> virtual# Q: busy=' + !!CURRENT_VIRTUAL_NUMBER_REQUEST + ', qSize=' + VIRTUAL_NUMBERS_QUEUE.length);
         if (!CURRENT_VIRTUAL_NUMBER_REQUEST && VIRTUAL_NUMBERS_QUEUE.length) {
-            console.log('>>> gettingVirtual#...');
+            console.log('>>> gettingVirtual#... qSize=' + VIRTUAL_NUMBERS_QUEUE.length);
             CURRENT_VIRTUAL_NUMBER_REQUEST = VIRTUAL_NUMBERS_QUEUE.splice(0, 1)[0];
             const callback = CURRENT_VIRTUAL_NUMBER_REQUEST.callback;
             const db = CURRENT_VIRTUAL_NUMBER_REQUEST.db;
-            getVirtualNumber(db).then(
+            const requestedBy = CURRENT_VIRTUAL_NUMBER_REQUEST.requestedBy;
+            getVirtualNumber(db, requestedBy).then(
                 virtualNumber => {
                     console.log('>>> virtual# retrieved: ' + virtualNumber);
                     callback(virtualNumber);
@@ -888,7 +890,7 @@ const beginListenVirtualNumbersQueue = () => {
     }, 500);
 }
 
-const getVirtualNumber = async (db) => {
+const getVirtualNumber = async (db, requestedBy) => {
     try {
         const virtualNumbers = await db.collection('virtualNumbers')
             .find({ available: true })
@@ -897,7 +899,10 @@ const getVirtualNumber = async (db) => {
             const availableNumber = virtualNumbers[0].phoneNumber;
             await db.collection('virtualNumbers').updateOne(
                 { phoneNumber: availableNumber },
-                { $set: { available: false } }
+                { $set: { 
+                    requestedBy,
+                    available: false 
+                } }
             );
             return availableNumber;
         }
@@ -911,11 +916,12 @@ const getVirtualNumber = async (db) => {
     }
 }
 
-const requestVirtualNumber = (db) => {
+const requestVirtualNumber = (db, requestedBy) => {
     return new Promise((resolve, reject) => {
         let isNumberRetrieved = false;
         VIRTUAL_NUMBERS_QUEUE.push({
             db,
+            requestedBy,
             callback: (virtualNumber) => {
                 console.log('>>> virtual# resolved: ' + virtualNumber);
                 isNumberRetrieved = true;
@@ -972,7 +978,7 @@ const initializeCall = async (fromUsername, toUsername, db, userBlocked) => {
             userBlocked();
         }
         else {
-            const virtualNumber = await requestVirtualNumber(db);
+            const virtualNumber = await requestVirtualNumber(db, fromUsername);
 
             await db.collection('phoneCalls').insertOne({
                 from: {
@@ -1051,6 +1057,9 @@ app.post('/call/initialize', (req, res, next) => {
             console.log('cant find non-active call for virtual number ' + virtualNumber);
             throw new Error('call not available to be received.');
         }
+
+        console.log('>> MEMO: phoneCall ID ' + phoneCall._id + ' to connect from user ' + phoneCall.from.username + 
+            ' to user ' + phoneCall.to.username);
         await db.collection('phoneCalls').updateOne(
             { _id: phoneCall._id },
             { $set: { 
@@ -1063,6 +1072,7 @@ app.post('/call/initialize', (req, res, next) => {
             { username: phoneCall.from.username },
             { socketReceiveId: 1 }
         );
+        console.log('>> MEMO: ' + phoneCall.from.username + ', ' + fromUser.socketReceiveId)
         pusher.trigger(fromUser.socketReceiveId, 'call-begin', {
             callId: phoneCall._id.toString()
         });
@@ -1373,5 +1383,42 @@ app.post('/call/:callId/rate', (req, res, next) => {
             }
         );
         //  BADGES (todo): increment numberOfRatings of caller, this can go toward badge, award badge if earned
+    });
+});
+
+const releaseNumber = async (username, virtualNumber, db) => {
+    try {
+        const result = await db.collection('virtualNumbers').updateOne(
+            {
+                phoneNumber: virtualNumber,
+                requestedBy: username
+            },
+            { $set: { available: true } }
+        );
+        if (!result.matchedCount) {
+            console.log('>> WARNING: user ' + username + ' tried releasing number ' + virtualNumber +
+                ', but number either doesn\'t exist or was not most recently requested by that user.');
+        }
+    } catch(err) {
+        console.log('ERROR /virtualNumber/release: ', err);
+        throw err;
+    }
+}
+
+app.post('/virtualNumber/release', (req, res, next) => {
+    authenticatedDb(req, res, (username, db) => {
+        if (req.body.virtualNumber) {
+            releaseNumber(username, req.body.virtualNumber, db).then(
+                _ => {
+                    res.status(204).send();
+                },
+                _ => {
+                    res.status(500).send();
+                }
+            );
+        }
+        else {
+            res.status(400).send({ errorMessage: 'Virtual number is required.' });
+        }
     });
 });
