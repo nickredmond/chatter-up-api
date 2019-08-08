@@ -1240,7 +1240,8 @@ reportUser = async (username, requestBody, db) => {
             submittedBy: username,
             usernameReported: requestBody.username, 
             category: requestBody.category,
-            description: requestBody.description
+            description: requestBody.description,
+            dateCreated: new Date()
         };
         await db.collection('reports').insertOne(report);
     } catch(err) {
