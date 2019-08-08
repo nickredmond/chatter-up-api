@@ -245,20 +245,26 @@ app.post("/log-in", (req, res, next) => {
                     res.status(400).send({ playerExists: true, error: 'Password is invalid.' });
                 }
                 else {
-                    setUserConnected(user.username, db).then(
-                        _ => {
-                            const token = generateJwt(user.username);
-                            const phoneNumberExists = user.phoneNumber && user.phoneNumber.length > 0;
-                            const phoneNumberVerified = user.isPhoneNumberConfirmed;
-                            res.status(200).send({ 
-                                token,
-                                phoneNumberExists,
-                                phoneNumberVerified,
-                                socketReceiveId: user.socketReceiveId
-                            });
-                        },  
+                    const skipPhoneNumberValidation = true;
+                    checkUserStatus(user.username, db, res, user, skipPhoneNumberValidation).then(
+                        isValid => {
+                            if (isValid) {
+                                const token = generateJwt(user.username);
+                                const phoneNumberExists = user.phoneNumber && user.phoneNumber.length > 0;
+                                const phoneNumberVerified = user.isPhoneNumberConfirmed;
+                                res.status(200).send({ 
+                                    token,
+                                    phoneNumberExists,
+                                    phoneNumberVerified,
+                                    socketReceiveId: user.socketReceiveId
+                                });
+                            }
+                            else {
+                                console.log('>> WARN: invalid user ' + username + ' tried making request.');
+                            }
+                        },
                         err => {
-                            console.log('ERROR setting user lastOnline during /log-in', err);
+                            console.log('ERROR validating user (/log-in): ', err);
                             res.status(500).send();
                         }
                     );
@@ -291,20 +297,51 @@ const verifyToken = (token, res, onSuccess) => {
     });
 }
 
-const setUserConnected = async (username, db) => {
+const checkUserStatus = async (username, db, res, existingUser, skipPhoneNumberValidation) => {
+    let user = existingUser;
+    if (!user) {
+        user = await db.collection('users').findOne(
+            { username },
+            { isSuspended: 1, isPhoneNumberConfirmed: 1 }
+        );
+    }
+
     await db.collection('users').updateOne(
-        { username },
+        { _id: user._id },
         { $set: { lastOnline: new Date() } }
     );
+
+    let isValid = false;
+    if (user.isSuspended) {
+        res.status(497).send({ errorMessage: 'Your account has been suspended.' });
+    }
+    else if (!(skipPhoneNumberValidation || user.isPhoneNumberConfirmed)) {
+        res.status(403).send({ errorMessage: 'Your phone number has not been confirmed.' });
+    }
+    else {
+        isValid = true;
+    }
+
+    return isValid;
 }
 
 const authenticatedDb = (req, res, onSuccess) => {
     verifyToken(req.body.token, res, username => {
         getDb(res, db => {
-            setUserConnected(username, db).catch(err => {
-                console.log('ERROR updating user "' + username + '" last connected status: ', err);
-            });
-            onSuccess(username, db);
+            checkUserStatus(username, db, res).then(
+                isValid => {
+                    if (isValid) {
+                        onSuccess(username, db);
+                    }
+                    else {
+                        console.log('>> WARN: invalid user ' + username + ' tried making request.');
+                    }
+                },
+                err => {
+                    console.log('ERROR validating user (/log-in): ', err);
+                    res.status(500).send();
+                }
+            );
         });
     })
 }
