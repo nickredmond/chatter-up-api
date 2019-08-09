@@ -20,6 +20,9 @@ const NEXMO_SECRET = process.env.NEXMO_SECRET;
 const NEXMO_SMS_NUMBER = process.env.NEXMO_SMS_NUMBER;
 const NEXMO_EVENT_URL = process.env.NEXMO_EVENT_URL;
 
+const BADGE_FRIENDLY_MINIMUM_RATINGS = process.env.BADGE_FRIENDLY_MINIMUM_RATINGS || 5;
+const BADGE_FRIENDLY_MINIMUM_THRESHOLD = process.env.BADGE_FRIENDLY_MINIMUM_THRESHOLD || 0.75;
+
 Date.prototype.addHours = function(h) {    
     this.setTime(this.getTime() + (h*60*60*1000)); 
     return this;   
@@ -167,7 +170,12 @@ app.post("/create-user", (req, res, next) => {
                                 coolPoints: 0,
                                 badges: [],
                                 messageLists: [],
-                                blockedUsernames: []
+                                blockedUsernames: [],
+                                ratingCounts: {
+                                    positive: 0,
+                                    negative: 0
+                                },
+                                ratedBy: []
                             };
                             db.collection('users').insertOne(user, (err) => {
                                 if (err) {
@@ -1362,6 +1370,22 @@ app.post('/contact', (req, res, next) => {
 
 /** END: SUPPORT ENDPOINTS */
 
+const FRIENDLY_BADGE_KEY = 'friendly';
+isFriendlyBadgeAwarded = (badges, ratingCounts) => {
+    let awarded = false;
+    const totalRatings = ratingCounts.positive + ratingCounts.negative;
+    
+    if (!badges.filter(badge => badge.key === FRIENDLY_BADGE_KEY).length && 
+        totalRatings >= BADGE_FRIENDLY_MINIMUM_RATINGS) {
+            
+        const percentagePositveRatings = ratingCounts.positive / totalRatings;
+        awarded = percentagePositveRatings >= BADGE_FRIENDLY_MINIMUM_THRESHOLD;
+    }
+
+    return awarded;
+        
+}
+
 const COOLPOINTS_BY_RATING = {
     'ok': 0,
     'good': 1,
@@ -1390,11 +1414,50 @@ const saveCallRating = async (username, req, res, db) => {
                     { $push: { ratings: rating } }
                 );
 
+                const userRated = await db.collection('users').findOne(
+                    { username: usernameRated },
+                    { ratingCounts: 1, ratedBy: 1, badges: 1 }
+                );
+                const updates = {};
+                let hasUpdates = false;
+                
                 const coolPointsEarned = COOLPOINTS_BY_RATING[ratingText] || 0;
                 if (coolPointsEarned > 0) {
+                    hasUpdates = true;
+                    updates['$inc'] = { coolPoints: coolPointsEarned };
+                }
+
+                const isNewRating = !userRated.ratedBy.includes(username);
+                if (isNewRating) {
+                    hasUpdates = true;
+                    const ratingIncrement = coolPointsEarned ? 'positive' : 'negative';
+                    if (!updates['$inc']) {
+                        updates['$inc'] = {};
+                    }
+                    updates['$inc']['ratingCounts.' + ratingIncrement] = 1;
+                    updates['$push'] = { ratedBy: username };
+
+                    userRated.ratingCounts[ratingIncrement]++;
+                }
+
+                if (isFriendlyBadgeAwarded(userRated.badges, userRated.ratingCounts)) {
+                    hasUpdates = true;
+                    if (!updates['$push']) {
+                        updates['$push'] = {};
+                    }
+                    updates['$push']['badges'] = {
+                        key: FRIENDLY_BADGE_KEY,
+                        icon: 'TBD',
+                        name: 'Friend in Me',
+                        description: 'User is regarded in the TalkItOut community with numerous positive ratings ' +
+                            'from a variety of different users. The world could use more people like this.'
+                    };
+                }
+                
+                if (hasUpdates) {
                     await db.collection('users').updateOne(
-                        { username: usernameRated },
-                        { $inc: { coolPoints: coolPointsEarned } }
+                        { _id: userRated._id },
+                        updates
                     );
                 }
 
@@ -1420,7 +1483,6 @@ app.post('/call/:callId/rate', (req, res, next) => {
                 res.status(500).send();
             }
         );
-        //  BADGES (todo): increment numberOfRatings of caller, this can go toward badge, award badge if earned
     });
 });
 
