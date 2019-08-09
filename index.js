@@ -1447,7 +1447,8 @@ const saveCallRating = async (username, req, res, db) => {
                     }
                     updates['$push']['badges'] = {
                         key: FRIENDLY_BADGE_KEY,
-                        icon: 'TBD',
+                        icon: 'heart',
+                        iconSet: 'font-awesome',
                         name: 'Friend in Me',
                         description: 'User is regarded in the TalkItOut community with numerous positive ratings ' +
                             'from a variety of different users. The world could use more people like this.'
