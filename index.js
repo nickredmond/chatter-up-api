@@ -20,8 +20,10 @@ const NEXMO_SECRET = process.env.NEXMO_SECRET;
 const NEXMO_SMS_NUMBER = process.env.NEXMO_SMS_NUMBER;
 const NEXMO_EVENT_URL = process.env.NEXMO_EVENT_URL;
 
-const BADGE_FRIENDLY_MINIMUM_RATINGS = process.env.BADGE_FRIENDLY_MINIMUM_RATINGS || 5;
-const BADGE_FRIENDLY_MINIMUM_THRESHOLD = process.env.BADGE_FRIENDLY_MINIMUM_THRESHOLD || 0.75;
+const BADGE_FRIENDLY_MINIMUM_RATINGS = parseInt(process.env.BADGE_FRIENDLY_MINIMUM_RATINGS);
+const BADGE_FRIENDLY_MINIMUM_THRESHOLD = parseFloat(process.env.BADGE_FRIENDLY_MINIMUM_THRESHOLD);
+const BADGE_ALLSTAR_MINIMUM_CALLS = parseInt(process.env.BADGE_ALLSTAR_MINIMUM_CALLS);
+const BADGE_ALLSTAR_MINIMUM_CALL_LENGTH_MINUTES = parseInt(process.env.BADGE_ALLSTAR_MINIMUM_CALL_LENGTH_MINUTES);
 
 Date.prototype.addHours = function(h) {    
     this.setTime(this.getTime() + (h*60*60*1000)); 
@@ -36,6 +38,134 @@ const MongoClient = mongodb.MongoClient;
 const databaseUrl = process.env.DATABASE_URI || 'mongodb://localhost:27017';
 const databaseName = process.env.DATABASE_NAME || 'localSandbox'; 
 let cachedDb = null;
+
+// BEGIN: Workers
+
+const EXPLORER_BADGE_KEY = 'explorer';
+const ALLSTAR_BADGE_KEY = 'allStar';
+/** get any call recipient badge that's due. assumes user has taken call from new person 
+ * for minimum time required. */
+const getCallRecipientBadge = (user) => {
+    let badgeAwarded = null;
+
+    if (!user.badges.filter(badge => badge.key === EXPLORER_BADGE_KEY).length) {
+        badgeAwarded = {
+            key: EXPLORER_BADGE_KEY,
+            icon: 'map',
+            iconSet: 'font-awesome',
+            name: 'Testing the Waters',
+            description: 'Has taken their first phone call and conversed with someone!'
+        }
+    }
+    else if (!user.badges.filter(badge => badge.key === ALLSTAR_BADGE_KEY).length && 
+        user.calledBy.length >= BADGE_ALLSTAR_MINIMUM_CALLS - 1) {
+
+        badgeAwarded = {
+            key: ALLSTAR_BADGE_KEY,
+            icon: 'star',
+            iconSet: 'font-awesome',
+            name: 'All-Star Receiver',
+            description: 'Has taken numerous phone calls from different people, and is obviously an example in the community of good listening.'
+        }
+    }
+
+    return badgeAwarded;
+}
+
+/** 
+ * checks if user has received enough phone calls to be awarded "allstar" badge.
+ * should be run at end of each phone call.
+ */
+const updateCallRecipient_worker = async (db, fromUsername, toUsername, dateStarted, dateEnded) => {
+    try {
+        const diffMs = dateEnded - dateStarted;
+        const callLengthMinutes = diffMs / 1000 / 60;
+
+        if (callLengthMinutes >= BADGE_ALLSTAR_MINIMUM_CALL_LENGTH_MINUTES) {
+            const user = await db.collection('users').findOne(
+                { username: toUsername },
+                { badges: 1, calledBy: 1 }
+            );
+
+            if (!user.calledBy.includes(fromUsername)) {
+                const userUpdate = {
+                    $push: { calledBy: fromUsername }
+                };
+                const badgeAwarded = getCallRecipientBadge(user);
+                if (badgeAwarded) {
+                    userUpdate['$push']['badges'] = badgeAwarded;
+                }
+
+                await db.collection('users').updateOne(
+                    { _id: user._id }, 
+                    userUpdate
+                );
+            }
+        }
+    } catch(err) {
+        console.log('>> ERROR (updateCallRecipient worker): ', err);
+    }
+}
+
+/** 
+ * updates user that has been rated. awards user coolPoints if applicable,  
+ * and awards "friendly" badge if eligible.
+*/
+const updateUserRated_worker = async (db, usernameRated, ratedByUsername, ratingText) => {
+    try {
+        const userRated = await db.collection('users').findOne(
+            { username: usernameRated },
+            { ratingCounts: 1, ratedBy: 1, badges: 1 }
+        );
+        const updates = {};
+        let hasUpdates = false;
+        
+        const coolPointsEarned = COOLPOINTS_BY_RATING[ratingText] || 0;
+        if (coolPointsEarned > 0) {
+            hasUpdates = true;
+            updates['$inc'] = { coolPoints: coolPointsEarned };
+        }
+
+        const isNewRating = !userRated.ratedBy.includes(ratedByUsername);
+        if (isNewRating) {
+            hasUpdates = true;
+            const ratingIncrement = coolPointsEarned ? 'positive' : 'negative';
+            if (!updates['$inc']) {
+                updates['$inc'] = {};
+            }
+            updates['$inc']['ratingCounts.' + ratingIncrement] = 1;
+            updates['$push'] = { ratedBy: ratedByUsername };
+
+            userRated.ratingCounts[ratingIncrement]++;
+        }
+
+        if (isFriendlyBadgeAwarded(userRated.badges, userRated.ratingCounts)) {
+            hasUpdates = true;
+            if (!updates['$push']) {
+                updates['$push'] = {};
+            }
+            updates['$push']['badges'] = {
+                key: FRIENDLY_BADGE_KEY,
+                icon: 'heart',
+                iconSet: 'font-awesome',
+                name: 'Friend in Me',
+                description: 'User is regarded in the TalkItOut community with numerous positive ratings ' +
+                    'from a variety of different users.'
+            };
+        }
+        
+        if (hasUpdates) {
+            await db.collection('users').updateOne(
+                { _id: userRated._id },
+                updates
+            );
+        }
+    } catch(err) {
+        console.log('>> ERROR (updateUserRated worker): ', err);
+    }
+}
+
+// END: Workers
 
 const allowAnyOrigin = function(req, res, next) {
     res.header("Access-Control-Allow-Origin", "*");
@@ -175,7 +305,8 @@ app.post("/create-user", (req, res, next) => {
                                     positive: 0,
                                     negative: 0
                                 },
-                                ratedBy: []
+                                ratedBy: [],
+                                calledBy: []
                             };
                             db.collection('users').insertOne(user, (err) => {
                                 if (err) {
@@ -1167,20 +1298,28 @@ const endCall = async (virtualNumber, db) => {
                 virtualNumber, 
                 isActive: true
             },
-            { from: 1 }
+            { dateStarted: 1, from: 1, to: 1 }
         );
         if (phoneCall) {
+            const dateEnded = new Date();
+            setTimeout((database, from, to, startedOn, endedOn) => {
+                updateCallRecipient_worker(database, from, to, startedOn, endedOn);
+            }, 0, db, phoneCall.from.username, phoneCall.to.username, phoneCall.dateStarted, dateEnded);
+
             await db.collection('phoneCalls').updateOne(
                 { _id: phoneCall._id },
                 { $set: {
                     isActive: false,
-                    dateEnded: new Date()
+                    dateEnded
                 } }
             );
             await db.collection('virtualNumbers').updateOne(
                 { phoneNumber: virtualNumber },
                 { $set: { available: true } }
             );
+        }
+        else {
+            console.log('>> WARN: phoneCall with virtual number ' + virtualNumber + ' was ended, but phoneCall record cannot be found.');
         }
     } catch(err) {
         console.log('ERROR ending call (NEXMO /event): ', err);
@@ -1190,7 +1329,6 @@ const endCall = async (virtualNumber, db) => {
  app.post('/event', (req, res, next) => {
     console.log('NEXMO CALL EVENT (/event): ', req.body);
     if (req.body && req.body.status === 'completed') {
-         // todo: maybe check and only update DB/call if not already completed
         getDb(res, db => {
             const virtualNumber = req.body.to;
             endCall(virtualNumber, db).then(
@@ -1413,55 +1551,10 @@ const saveCallRating = async (username, req, res, db) => {
                     { _id: callId },
                     { $push: { ratings: rating } }
                 );
-
-                const userRated = await db.collection('users').findOne(
-                    { username: usernameRated },
-                    { ratingCounts: 1, ratedBy: 1, badges: 1 }
-                );
-                const updates = {};
-                let hasUpdates = false;
                 
-                const coolPointsEarned = COOLPOINTS_BY_RATING[ratingText] || 0;
-                if (coolPointsEarned > 0) {
-                    hasUpdates = true;
-                    updates['$inc'] = { coolPoints: coolPointsEarned };
-                }
-
-                const isNewRating = !userRated.ratedBy.includes(username);
-                if (isNewRating) {
-                    hasUpdates = true;
-                    const ratingIncrement = coolPointsEarned ? 'positive' : 'negative';
-                    if (!updates['$inc']) {
-                        updates['$inc'] = {};
-                    }
-                    updates['$inc']['ratingCounts.' + ratingIncrement] = 1;
-                    updates['$push'] = { ratedBy: username };
-
-                    userRated.ratingCounts[ratingIncrement]++;
-                }
-
-                if (isFriendlyBadgeAwarded(userRated.badges, userRated.ratingCounts)) {
-                    hasUpdates = true;
-                    if (!updates['$push']) {
-                        updates['$push'] = {};
-                    }
-                    updates['$push']['badges'] = {
-                        key: FRIENDLY_BADGE_KEY,
-                        icon: 'heart',
-                        iconSet: 'font-awesome',
-                        name: 'Friend in Me',
-                        description: 'User is regarded in the TalkItOut community with numerous positive ratings ' +
-                            'from a variety of different users. The world could use more people like this.'
-                    };
-                }
-                
-                if (hasUpdates) {
-                    await db.collection('users').updateOne(
-                        { _id: userRated._id },
-                        updates
-                    );
-                }
-
+                setTimeout((database, nameRated, ratedBy, rating) => {
+                    updateUserRated_worker(database, nameRated, ratedBy, rating);
+                }, 0, db, usernameRated, username, ratingText);
                 res.status(204).send();
             }
             else {
