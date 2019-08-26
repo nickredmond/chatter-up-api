@@ -19,12 +19,17 @@ const NEXMO_API_KEY = process.env.NEXMO_API_KEY;
 const NEXMO_SECRET = process.env.NEXMO_SECRET;  
 const NEXMO_SMS_NUMBER = process.env.NEXMO_SMS_NUMBER;
 const NEXMO_EVENT_URL = process.env.NEXMO_EVENT_URL;
+const MAX_CALL_HRS_PER_MONTH = process.env.MAX_CALL_HRS_PER_MONTH || 50;
 
 const BADGE_FRIENDLY_MINIMUM_RATINGS = parseInt(process.env.BADGE_FRIENDLY_MINIMUM_RATINGS);
 const BADGE_FRIENDLY_MINIMUM_THRESHOLD = parseFloat(process.env.BADGE_FRIENDLY_MINIMUM_THRESHOLD);
 const BADGE_ALLSTAR_MINIMUM_CALLS = parseInt(process.env.BADGE_ALLSTAR_MINIMUM_CALLS);
 const BADGE_ALLSTAR_MINIMUM_CALL_LENGTH_MINUTES = parseInt(process.env.BADGE_ALLSTAR_MINIMUM_CALL_LENGTH_MINUTES);
 
+Date.prototype.addDays = function(d) {
+    this.setTime(this.getTime() + (d*24*60*60*1000)); 
+    return this; 
+}
 Date.prototype.addHours = function(h) {    
     this.setTime(this.getTime() + (h*60*60*1000)); 
     return this;   
@@ -206,6 +211,7 @@ const getDb = function(res, onConnect) {
                     cachedDb.collection('users').createIndex({ lastOnline: -1 });
                     cachedDb.collection('users').createIndex({ username: 1 });
                     cachedDb.collection('phoneCalls').createIndex({ virtualNumber: 1 });
+                    cachedDb.collection('phoneCalls').createIndex({ dateStarted: 1 });
                     cachedDb.collection('conversations').createIndex({ channelId: 1 });
                     cachedDb.collection('conversations').createIndex({ lastMessagePreview: 1 });
                     cachedDb.collection('supportRequests').createIndex({ dateCreated: -1 });
@@ -1043,25 +1049,39 @@ let CURRENT_VIRTUAL_NUMBER_REQUEST = null;
 const beginListenVirtualNumbersQueue = () => {
     console.log('>>> beginning listen to virtual numbers queue...');
     setInterval(() => {
-        // this is spam
-        // console.log('>>> virtual# Q: busy=' + !!CURRENT_VIRTUAL_NUMBER_REQUEST + ', qSize=' + VIRTUAL_NUMBERS_QUEUE.length);
-        if (!CURRENT_VIRTUAL_NUMBER_REQUEST && VIRTUAL_NUMBERS_QUEUE.length) {
-            console.log('>>> gettingVirtual#... qSize=' + VIRTUAL_NUMBERS_QUEUE.length);
-            CURRENT_VIRTUAL_NUMBER_REQUEST = VIRTUAL_NUMBERS_QUEUE.splice(0, 1)[0];
-            const callback = CURRENT_VIRTUAL_NUMBER_REQUEST.callback;
-            const db = CURRENT_VIRTUAL_NUMBER_REQUEST.db;
-            const requestedBy = CURRENT_VIRTUAL_NUMBER_REQUEST.requestedBy;
-            getVirtualNumber(db, requestedBy).then(
-                virtualNumber => {
-                    console.log('>>> virtual# retrieved: ' + virtualNumber);
-                    callback(virtualNumber);
-                    CURRENT_VIRTUAL_NUMBER_REQUEST = null;
-                },
-                err => {
-                    console.log('>>> CRITICAL ERROR: could not retrieve virtual number -- ', err);
-                    CURRENT_VIRTUAL_NUMBER_REQUEST = null;
-                }
-            )
+        try {
+            if (!CURRENT_VIRTUAL_NUMBER_REQUEST && VIRTUAL_NUMBERS_QUEUE.length) {
+                console.log('>>> gettingVirtual#... qSize=' + VIRTUAL_NUMBERS_QUEUE.length);
+                CURRENT_VIRTUAL_NUMBER_REQUEST = VIRTUAL_NUMBERS_QUEUE.splice(0, 1)[0];
+                const callback = CURRENT_VIRTUAL_NUMBER_REQUEST.callback;
+                const db = CURRENT_VIRTUAL_NUMBER_REQUEST.db;
+                const requestedBy = CURRENT_VIRTUAL_NUMBER_REQUEST.requestedBy;
+                getVirtualNumber(db, requestedBy).then(
+                    result => {
+                        if (result.virtualNumber) {
+                            console.log('>>> virtual# retrieved: ' + result.virtualNumber);
+                        }
+                        callback(result);
+                        CURRENT_VIRTUAL_NUMBER_REQUEST = null;
+                    },
+                    err => {
+                        console.log('>>> CRITICAL ERROR: could not retrieve virtual number -- ', err);
+                        CURRENT_VIRTUAL_NUMBER_REQUEST = null;
+                    }
+                )
+            }
+        } catch(err) {
+            console.log('>>> CRITICAL: error in virtual numbers queue! ', err);
+            try {
+                getDb(null, db => {
+                    db.collection('errors').insertOne({
+                        errorType: 'virtualNumbersQueueError',
+                        stackTrace: err
+                    });
+                })
+            } catch(err) {
+                console.log('>>> CRITICAL: cannot connect to DB saving error! ', err);
+            }
         }
     }, 500);
 }
@@ -1080,11 +1100,15 @@ const getVirtualNumber = async (db, requestedBy) => {
                     available: false 
                 } }
             );
-            return availableNumber;
+            return { virtualNumber: availableNumber };
         }
         else {
-            console.log('>>> CRITICAL: Nick didnt implement logic to rent new numbers!');
-            // todo: rent number, add to database, return
+            console.log('>>> CRITICAL: No virtual numbers are currently available!');
+            await db.collection('errors').insertOne({
+                errorType: 'noAvailableVirtualNumbers',
+                timestamp: new Date()
+            });
+            return { noAvailableNumbers: true };
         }
     } catch(err) {
         console.log('ERROR getting available virtual number (or renting one): ', err);
@@ -1092,16 +1116,22 @@ const getVirtualNumber = async (db, requestedBy) => {
     }
 }
 
-const requestVirtualNumber = (db, requestedBy) => {
+const NO_NUMBERS_AVAILABLE = 601;
+const queueVirtualNumber = (db, requestedBy) => {
     return new Promise((resolve, reject) => {
         let isNumberRetrieved = false;
         VIRTUAL_NUMBERS_QUEUE.push({
             db,
             requestedBy,
-            callback: (virtualNumber) => {
-                console.log('>>> virtual# resolved: ' + virtualNumber);
+            callback: (result) => {
                 isNumberRetrieved = true;
-                resolve(virtualNumber);
+                if (result.virtualNumber) {
+                    console.log('>>> virtual# resolved: ' + result.virtualNumber);
+                    resolve(result.virtualNumber);
+                }
+                else {
+                    reject(NO_NUMBERS_AVAILABLE);
+                }
             }
         });
         setTimeout(() => {
@@ -1111,6 +1141,44 @@ const requestVirtualNumber = (db, requestedBy) => {
             }
         }, 30000);
     });
+}
+
+const getTotalCallHoursPastMonth = async (db) => {
+    const oneMonthAgo = new Date();
+    oneMonthAgo.addDays(-30);
+    const phoneCallLengthsPastMonth = await db.collection('phoneCalls')
+        .find({ dateStarted: { $gt: oneMonthAgo }, dateEnded: { $exists: true } })
+        .project({ dateStarted: 1, dateEnded: 1 })
+        .map(phoneCall => {
+            const callLengthMs = phoneCall.dateEnded - phoneCall.dateStarted;
+            return callLengthMs;
+        })
+        .toArray();
+    
+    let totalCallLengthMilliseconds = 0;
+    for (let i = 0; i < phoneCallLengthsPastMonth.length; i++) {
+        totalCallLengthMilliseconds += phoneCallLengthsPastMonth[i];
+    }
+    const totalCallLengthHours = totalCallLengthMilliseconds / 1000 / 60 / 60;
+    return totalCallLengthHours;
+}
+
+const MAX_CALL_HOURS_EXCEEDED = 602;
+const requestVirtualNumber = async (db, requestedBy) => {
+    const totalCallHoursPastMonth = await getTotalCallHoursPastMonth(db);
+    if (totalCallHoursPastMonth >= MAX_CALL_HRS_PER_MONTH) {
+        console.log('>>> CRITICAL: Maximum call hours have been exceeded for the month!');
+        await db.collection('errors').insertOne({
+            errorType: 'maxCallHoursExceeded',
+            maxCallHours: MAX_CALL_HRS_PER_MONTH,
+            timestamp: new Date()
+        });
+        throw MAX_CALL_HOURS_EXCEEDED;
+    }
+    else {
+        const virtualNumber = await queueVirtualNumber(db, requestedBy);
+        return virtualNumber;
+    }
 }
 
 /** END: VIRTUAL NUMBERS QUEUE */
@@ -1200,8 +1268,13 @@ app.post('/call/initialize', (req, res, next) => {
                             virtualNumber => {
                                 res.status(200).send({ virtualNumber });
                             },
-                            _ => {
-                                res.status(500).send();
+                            error => {
+                                if (error && (error === NO_NUMBERS_AVAILABLE || error === MAX_CALL_HOURS_EXCEEDED)) {
+                                    res.status(565).send({ errorMessage: 'Phone call server limits have been exceeded!' });
+                                }
+                                else {
+                                    res.status(500).send();
+                                }
                             }
                         );
                     }
