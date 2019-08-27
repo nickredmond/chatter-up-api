@@ -1689,3 +1689,25 @@ app.post('/virtualNumber/release', (req, res, next) => {
         }
     });
 });
+
+const getFaqs = async (db) => {
+    try {
+        return await db.collection('faqs').find().toArray();
+    } catch(err) {
+        console.log('ERROR /faq: ', err);
+        throw err;
+    }
+}
+
+app.post('/faq', (req, res, next) => {
+    authenticatedDb(req, res, (username, db) => {
+        getFaqs(db).then(
+            faqs => {
+                res.status(200).send(faqs);
+            },
+            _ => {
+                res.status(500).send();
+            }
+        )
+    });
+})
