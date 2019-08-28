@@ -1213,6 +1213,7 @@ const isUserAvailable = async (username, db) => {
     try {
         const phoneCalls = await db.collection('phoneCalls')
             .find({
+                isActive: true,
                 $or: [
                     { 'from.username': username },
                     { 'to.username': username }
