@@ -212,6 +212,13 @@ const getDb = function(res, onConnect) {
                     cachedDb.collection('users').createIndex({ username: 1 });
                     cachedDb.collection('phoneCalls').createIndex({ virtualNumber: 1 });
                     cachedDb.collection('phoneCalls').createIndex({ dateStarted: 1 });
+                    cachedDb.collection('phoneCalls').createIndex({ 'from.username': 1 });
+                    cachedDb.collection('phoneCalls').createIndex({ 'to.username': 1 });
+
+                    // yes, this is boolean index for "where isActive = true" searches, since most 
+                    // phoneCalls are not active.
+                    cachedDb.collection('phoneCalls').createIndex({ isActive: 1}); 
+
                     cachedDb.collection('conversations').createIndex({ channelId: 1 });
                     cachedDb.collection('conversations').createIndex({ lastMessagePreview: 1 });
                     cachedDb.collection('supportRequests').createIndex({ dateCreated: -1 });
@@ -783,6 +790,25 @@ const getUsers = async (username, db) => {
                 };
                 distinctUsers.push(user);
             }
+        }
+
+        const activeCalls = await db.collection('phoneCalls')
+            .find({
+                isActive: true,
+                $or: [
+                    { 'from.username': { $in: distinctUsernames } },
+                    { 'to.username': { $in: distinctUsernames } }
+                ]
+            })
+            .toArray();
+        const activeUsernames = [];
+        for (let i = 0; i < activeCalls.length; i++) {
+            activeUsernames.push(activeCalls[i].from.username);
+            activeUsernames.push(activeCalls[i].to.username);
+        }
+
+        for (let i = 0; i < distinctUsers.length; i++) {
+            distinctUsers[i].canBeCalled = distinctUsers[i].canBeCalled && !activeUsernames.includes(distinctUsers[i].username);
         }
         
         return distinctUsers;
