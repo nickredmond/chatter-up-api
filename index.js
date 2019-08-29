@@ -845,6 +845,13 @@ const getUser = async (username, db) => {
                 badges: 1
             }
         );
+        const isInCall = await db.collection('phoneCalls').findOne({
+            isActive: true,
+            $or: [
+                { 'from.username': username },
+                { 'to.username': username }
+            ]
+        });
         const isOnline = isUserOnline(user.lastOnline);
 
         return {
@@ -854,7 +861,7 @@ const getUser = async (username, db) => {
             badges: user.badges,
             lastOnline: isOnline ? null : user.lastOnline,
             isOnline,
-            canBeCalled: user.isPhoneNumberConfirmed && user.phoneCallsEnabled
+            canBeCalled: user.isPhoneNumberConfirmed && user.phoneCallsEnabled && !isInCall
         };
     } catch (err) {
         console.log('ERROR /user: ', err);
